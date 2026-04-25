@@ -1,175 +1,171 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#E8602C" />
-  <meta name="description" content="Luyện thuyết trình cho hướng dẫn viên du lịch tại Đà Nẵng" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Speaking Coach" />
-
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+  <meta name="theme-color" content="#E8602C"/>
+  <meta name="description" content="Luyện thuyết trình hướng dẫn viên du lịch Đà Nẵng"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Speaking Coach"/>
   <title>AI Tour Guide Speaking Coach</title>
-
-  <link rel="manifest" href="./manifest.json" />
-  <link rel="stylesheet" href="./styles.css" />
-
-  <!-- Google Fonts preconnect -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="manifest" href="./manifest.json"/>
+  <link rel="stylesheet" href="./styles.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 </head>
 <body>
 
-  <!-- ── HEADER ── -->
-  <header class="app-header">
-    <div class="header-top">
-      <div class="header-icon">🎤</div>
-      <div class="header-text">
-        <h1>AI Tour Guide Speaking Coach</h1>
-        <p>Luyện thuyết trình hướng dẫn viên du lịch</p>
+<!-- ── HEADER ── -->
+<header class="app-header">
+  <div class="header-top">
+    <div class="header-icon">🎤</div>
+    <div class="header-text">
+      <h1>AI Tour Guide Speaking Coach</h1>
+      <p>Luyện thuyết trình hướng dẫn viên du lịch</p>
+    </div>
+  </div>
+  <div class="streak-bar">
+    <div class="streak-item">🔥 <span class="streak-num" id="streakCount">0</span>&nbsp;ngày liên tiếp</div>
+    <div class="streak-item" style="margin-left:auto">🎯 <span id="totalSessions">0</span>&nbsp;bài</div>
+  </div>
+  <nav class="tab-bar" role="tablist">
+    <button class="tab-btn active" data-tab="practice">🎙️ Luyện tập</button>
+    <button class="tab-btn" data-tab="history">📚 Lịch sử</button>
+    <button class="tab-btn" data-tab="stats">📊 Tiến bộ</button>
+    <button class="tab-btn" data-tab="tips">💡 Mẹo</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ═══ TAB: PRACTICE ═══ -->
+  <section id="panel-practice" class="tab-panel active" role="tabpanel">
+
+    <div class="no-speech-banner" id="noSpeechBanner">
+      ⚠️ Trình duyệt chưa hỗ trợ nhận dạng giọng nói. Dùng Chrome trên Android để trải nghiệm đầy đủ.
+    </div>
+
+    <p class="section-label">📍 Chọn chủ đề luyện tập</p>
+    <div class="topic-grid" id="topicGrid"></div>
+
+    <div id="scriptSection" style="display:none">
+      <p class="section-label">📖 Bài mẫu tham khảo</p>
+      <div class="script-card">
+        <h3 id="scriptTopicName"></h3>
+        <p class="script-text" id="scriptText"></p>
       </div>
     </div>
 
-    <!-- Tab Bar -->
-    <nav class="tab-bar" role="tablist">
-      <button class="tab-btn active" data-tab="practice" role="tab" aria-selected="true">🎙️ Luyện tập</button>
-      <button class="tab-btn" data-tab="history" role="tab" aria-selected="false">📚 Lịch sử</button>
-      <button class="tab-btn" data-tab="tips" role="tab" aria-selected="false">💡 Mẹo hay</button>
-    </nav>
-  </header>
+    <p class="section-label">🎙️ Ghi âm bài nói</p>
+    <div class="recorder-card">
+      <div class="recorder-status" id="recStatus">
+        <div class="pulse-dot" id="pulseDot"></div>
+        <span id="recStatusText">Nhấn để bắt đầu</span>
+      </div>
+      <button class="record-btn idle" id="recordBtn" aria-label="Bắt đầu ghi âm">🎤</button>
+      <p class="record-btn-label">Nhấn để ghi âm / dừng</p>
+      <div class="timer-display" id="timerDisplay">00:00</div>
+    </div>
 
-  <!-- ── MAIN ── -->
-  <main>
+    <!-- Live transcript -->
+    <div class="live-section" id="liveSection">
+      <p class="section-label">📡 Đang nhận dạng giọng nói</p>
+      <div id="liveStats" class="live-stats"></div>
+      <div class="live-transcript-box">
+        <div id="liveTranscript"></div>
+      </div>
+    </div>
 
-    <!-- ═══════════════════════════════
-         TAB: PRACTICE
-    ════════════════════════════════ -->
-    <section id="panel-practice" class="tab-panel active" role="tabpanel">
+    <!-- ── RESULT CARD ── -->
+    <div class="result-card" id="resultCard">
 
-      <!-- No Speech API Banner -->
-      <div class="no-speech-banner" id="noSpeechBanner">
-        ⚠️ Trình duyệt của bạn chưa hỗ trợ Web Speech API. Vui lòng dùng Chrome trên Android để trải nghiệm đầy đủ.
+      <!-- Score Ring -->
+      <div class="score-ring-wrap">
+        <svg class="score-svg" viewBox="0 0 110 110">
+          <circle class="score-bg-ring" cx="55" cy="55" r="44"/>
+          <circle class="score-ring" id="scoreRing" cx="55" cy="55" r="44"/>
+          <text class="score-num-text" x="55" y="60" text-anchor="middle" id="scoreNumber">0</text>
+          <text class="score-lbl-text" x="55" y="72" text-anchor="middle">/100</text>
+        </svg>
+        <div id="scoreLabel"></div>
       </div>
 
-      <!-- Topic Selection -->
-      <p class="section-label">📍 Chọn chủ đề</p>
-      <div class="topic-grid" id="topicGrid"></div>
-
-      <!-- Sample Script -->
-      <div id="scriptSection" style="display:none;">
-        <p class="section-label">📖 Bài mẫu tham khảo</p>
-        <div class="script-card">
-          <h3 id="scriptTopicName"></h3>
-          <p class="script-text" id="scriptText"></p>
-        </div>
+      <!-- Stats Grid -->
+      <div class="stats-grid">
+        <div class="stat-box"><div class="stat-value" id="resWords">—</div><div class="stat-label">Tổng từ</div></div>
+        <div class="stat-box"><div class="stat-value" id="resWpm">—</div><div class="stat-label">Từ/phút</div></div>
+        <div class="stat-box"><div class="stat-value" id="resTime">—</div><div class="stat-label">Thời gian</div></div>
+        <div class="stat-box"><div class="stat-value" id="resSentences">—</div><div class="stat-label">Câu</div></div>
+        <div class="stat-box"><div class="stat-value" id="resFillers" style="color:#E65100">—</div><div class="stat-label">Từ đệm</div></div>
+        <div class="stat-box"><div class="stat-value" id="resPauses" style="color:#1A7F7A">—</div><div class="stat-label">Ngắt nghỉ</div></div>
       </div>
 
-      <!-- Recorder -->
-      <p class="section-label">🎙️ Ghi âm bài nói</p>
-      <div class="recorder-card">
-        <div class="recorder-status" id="recStatus">
-          <div class="pulse-dot" id="pulseDot"></div>
-          <span>Nhấn để bắt đầu</span>
-        </div>
-
-        <button class="record-btn idle" id="recordBtn" aria-label="Bắt đầu ghi âm">🎤</button>
-
-        <p class="record-btn-label">Nhấn để ghi âm / dừng</p>
-        <div class="timer-display" id="timerDisplay">00:00</div>
+      <!-- Rating badges -->
+      <p class="section-label">🏷️ Đánh giá</p>
+      <div class="badge-row">
+        <span class="badge" id="resSpeedBadge"></span>
+        <span class="badge" id="resFillerBadge"></span>
+        <span class="badge" id="resLengthBadge"></span>
+        <span class="badge" id="resOpenBadge"></span>
+        <span class="badge" id="resCloseBadge"></span>
       </div>
 
-      <!-- Live Transcript (shown while recording) -->
-      <div id="liveBox" style="margin-top:12px;display:none;">
-        <p class="section-label">📝 Đang nhận dạng...</p>
-        <div class="transcript-box">
-          <p id="liveTranscript" style="color:#A0836A;font-style:italic;"></p>
-        </div>
+      <!-- Keyword coverage -->
+      <p class="section-label">🗝️ Độ bao quát chủ đề</p>
+      <div class="kw-bar-wrap"><div class="kw-bar" id="keywordBar" style="width:0%"></div></div>
+      <div class="kw-text" id="keywordText">—</div>
+
+      <!-- Filler word breakdown -->
+      <p class="section-label">🚫 Từ đệm phát hiện</p>
+      <div class="filler-chips" id="fillerList"></div>
+
+      <!-- Transcript with highlights -->
+      <p class="section-label">📝 Transcript (từ đệm được đánh dấu)</p>
+      <div class="transcript-box" id="resTranscript"></div>
+
+      <!-- Local feedback -->
+      <div class="feedback-box">
+        <p id="resFeedback"></p>
       </div>
 
-      <!-- Results Card -->
-      <div class="result-card" id="resultCard">
-        <div class="result-title">📊 Kết quả bài nói</div>
-
-        <div class="stats-grid">
-          <div class="stat-box">
-            <div class="stat-value" id="resWords">—</div>
-            <div class="stat-label">Tổng số từ</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-value" id="resWpm">—</div>
-            <div class="stat-label">Từ / phút (WPM)</div>
-          </div>
-          <div class="stat-box" style="grid-column:1/-1;">
-            <div class="stat-value" id="resTime" style="font-size:18px;">—</div>
-            <div class="stat-label">Thời gian nói</div>
-          </div>
-        </div>
-
-        <div class="rating-badges">
-          <span class="badge" id="resSpeedBadge"></span>
-          <span class="badge" id="resLengthBadge"></span>
-        </div>
-
-        <p class="section-label">📝 Transcript</p>
-        <div class="transcript-box">
-          <p id="resTranscript"></p>
-        </div>
-
-        <div class="feedback-box">
-          <p id="resFeedback"></p>
-        </div>
-
-        <button class="btn btn-primary" id="saveBtn" style="display:none;">
-          💾 Lưu bài luyện
-        </button>
+      <!-- AI Feedback -->
+      <div class="ai-feedback-box" id="aiFeedbackBox">
+        <div class="ai-feedback-title"><span>🤖</span> Nhận xét từ AI Coach</div>
+        <div id="aiFeedbackContent"></div>
       </div>
 
-    </section>
+      <button class="btn btn-primary" id="saveBtn" style="display:none">💾 Lưu bài luyện</button>
+    </div>
 
-    <!-- ═══════════════════════════════
-         TAB: HISTORY
-    ════════════════════════════════ -->
-    <section id="panel-history" class="tab-panel" role="tabpanel">
-      <p class="section-label">📚 Lịch sử luyện tập</p>
-      <div class="history-list" id="historyList"></div>
-    </section>
+  </section>
 
-    <!-- ═══════════════════════════════
-         TAB: TIPS
-    ════════════════════════════════ -->
-    <section id="panel-tips" class="tab-panel" role="tabpanel">
-      <div class="tips-hero">
-        <div class="hero-icon">🌟</div>
-        <h2>Bí quyết thuyết trình hay</h2>
-        <p>Những mẹo nhỏ giúp bạn trở thành hướng dẫn viên xuất sắc</p>
-      </div>
-      <div id="tipsList"></div>
-    </section>
+  <!-- ═══ TAB: HISTORY ═══ -->
+  <section id="panel-history" class="tab-panel" role="tabpanel">
+    <p class="section-label">📚 Lịch sử luyện tập</p>
+    <div class="history-list" id="historyList"></div>
+  </section>
 
-  </main>
+  <!-- ═══ TAB: STATS ═══ -->
+  <section id="panel-stats" class="tab-panel" role="tabpanel">
+    <p class="section-label">📊 Thống kê tiến bộ</p>
+    <div id="statsContent"></div>
+  </section>
 
-  <!-- ── TOAST ── -->
-  <div class="toast" id="toast" role="alert" aria-live="polite"></div>
+  <!-- ═══ TAB: TIPS ═══ -->
+  <section id="panel-tips" class="tab-panel" role="tabpanel">
+    <div class="tips-hero">
+      <div class="hero-icon">🌟</div>
+      <h2>Bí quyết thuyết trình hay</h2>
+      <p>Những mẹo nhỏ giúp bạn trở thành hướng dẫn viên xuất sắc</p>
+    </div>
+    <div id="tipsList"></div>
+  </section>
 
-  <script src="./app.js"></script>
+</main>
 
-  <script>
-    // Show live box when recording starts / stops
-    const origStart = startRecording;
-    const origStop  = stopRecording;
+<div class="toast" id="toast" role="alert" aria-live="polite"></div>
 
-    // Patch to show/hide live transcript box
-    document.addEventListener('DOMContentLoaded', () => {
-      const recordBtn = document.getElementById('recordBtn');
-      const liveBox = document.getElementById('liveBox');
-
-      recordBtn.addEventListener('click', () => {
-        // wait a tick to check state
-        setTimeout(() => {
-          liveBox.style.display = isRecording ? 'block' : 'none';
-        }, 100);
-      });
-    });
-  </script>
+<script src="./app.js"></script>
 </body>
 </html>
