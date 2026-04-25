@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#E8602C" />
+  <meta name="description" content="Luyện thuyết trình cho hướng dẫn viên du lịch tại Đà Nẵng" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Speaking Coach" />
+
+  <title>AI Tour Guide Speaking Coach</title>
+
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <!-- Google Fonts preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+</head>
+<body>
+
+  <!-- ── HEADER ── -->
+  <header class="app-header">
+    <div class="header-top">
+      <div class="header-icon">🎤</div>
+      <div class="header-text">
+        <h1>AI Tour Guide Speaking Coach</h1>
+        <p>Luyện thuyết trình hướng dẫn viên du lịch</p>
+      </div>
+    </div>
+
+    <!-- Tab Bar -->
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="practice" role="tab" aria-selected="true">🎙️ Luyện tập</button>
+      <button class="tab-btn" data-tab="history" role="tab" aria-selected="false">📚 Lịch sử</button>
+      <button class="tab-btn" data-tab="tips" role="tab" aria-selected="false">💡 Mẹo hay</button>
+    </nav>
+  </header>
+
+  <!-- ── MAIN ── -->
+  <main>
+
+    <!-- ═══════════════════════════════
+         TAB: PRACTICE
+    ════════════════════════════════ -->
+    <section id="panel-practice" class="tab-panel active" role="tabpanel">
+
+      <!-- No Speech API Banner -->
+      <div class="no-speech-banner" id="noSpeechBanner">
+        ⚠️ Trình duyệt của bạn chưa hỗ trợ Web Speech API. Vui lòng dùng Chrome trên Android để trải nghiệm đầy đủ.
+      </div>
+
+      <!-- Topic Selection -->
+      <p class="section-label">📍 Chọn chủ đề</p>
+      <div class="topic-grid" id="topicGrid"></div>
+
+      <!-- Sample Script -->
+      <div id="scriptSection" style="display:none;">
+        <p class="section-label">📖 Bài mẫu tham khảo</p>
+        <div class="script-card">
+          <h3 id="scriptTopicName"></h3>
+          <p class="script-text" id="scriptText"></p>
+        </div>
+      </div>
+
+      <!-- Recorder -->
+      <p class="section-label">🎙️ Ghi âm bài nói</p>
+      <div class="recorder-card">
+        <div class="recorder-status" id="recStatus">
+          <div class="pulse-dot" id="pulseDot"></div>
+          <span>Nhấn để bắt đầu</span>
+        </div>
+
+        <button class="record-btn idle" id="recordBtn" aria-label="Bắt đầu ghi âm">🎤</button>
+
+        <p class="record-btn-label">Nhấn để ghi âm / dừng</p>
+        <div class="timer-display" id="timerDisplay">00:00</div>
+      </div>
+
+      <!-- Live Transcript (shown while recording) -->
+      <div id="liveBox" style="margin-top:12px;display:none;">
+        <p class="section-label">📝 Đang nhận dạng...</p>
+        <div class="transcript-box">
+          <p id="liveTranscript" style="color:#A0836A;font-style:italic;"></p>
+        </div>
+      </div>
+
+      <!-- Results Card -->
+      <div class="result-card" id="resultCard">
+        <div class="result-title">📊 Kết quả bài nói</div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-value" id="resWords">—</div>
+            <div class="stat-label">Tổng số từ</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value" id="resWpm">—</div>
+            <div class="stat-label">Từ / phút (WPM)</div>
+          </div>
+          <div class="stat-box" style="grid-column:1/-1;">
+            <div class="stat-value" id="resTime" style="font-size:18px;">—</div>
+            <div class="stat-label">Thời gian nói</div>
+          </div>
+        </div>
+
+        <div class="rating-badges">
+          <span class="badge" id="resSpeedBadge"></span>
+          <span class="badge" id="resLengthBadge"></span>
+        </div>
+
+        <p class="section-label">📝 Transcript</p>
+        <div class="transcript-box">
+          <p id="resTranscript"></p>
+        </div>
+
+        <div class="feedback-box">
+          <p id="resFeedback"></p>
+        </div>
+
+        <button class="btn btn-primary" id="saveBtn" style="display:none;">
+          💾 Lưu bài luyện
+        </button>
+      </div>
+
+    </section>
+
+    <!-- ═══════════════════════════════
+         TAB: HISTORY
+    ════════════════════════════════ -->
+    <section id="panel-history" class="tab-panel" role="tabpanel">
+      <p class="section-label">📚 Lịch sử luyện tập</p>
+      <div class="history-list" id="historyList"></div>
+    </section>
+
+    <!-- ═══════════════════════════════
+         TAB: TIPS
+    ════════════════════════════════ -->
+    <section id="panel-tips" class="tab-panel" role="tabpanel">
+      <div class="tips-hero">
+        <div class="hero-icon">🌟</div>
+        <h2>Bí quyết thuyết trình hay</h2>
+        <p>Những mẹo nhỏ giúp bạn trở thành hướng dẫn viên xuất sắc</p>
+      </div>
+      <div id="tipsList"></div>
+    </section>
+
+  </main>
+
+  <!-- ── TOAST ── -->
+  <div class="toast" id="toast" role="alert" aria-live="polite"></div>
+
+  <script src="./app.js"></script>
+
+  <script>
+    // Show live box when recording starts / stops
+    const origStart = startRecording;
+    const origStop  = stopRecording;
+
+    // Patch to show/hide live transcript box
+    document.addEventListener('DOMContentLoaded', () => {
+      const recordBtn = document.getElementById('recordBtn');
+      const liveBox = document.getElementById('liveBox');
+
+      recordBtn.addEventListener('click', () => {
+        // wait a tick to check state
+        setTimeout(() => {
+          liveBox.style.display = isRecording ? 'block' : 'none';
+        }, 100);
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "AI Tour Guide Speaking Coach",
+  "short_name": "Speaking Coach",
+  "description": "Luyện thuyết trình cho hướng dẫn viên du lịch",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#FFF8F0",
+  "theme_color": "#E8602C",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='32' fill='%23E8602C'/><text x='96' y='130' font-size='100' text-anchor='middle'>🎤</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%23E8602C'/><text x='256' y='340' font-size='260' text-anchor='middle'>🎤</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "lang": "vi"
+}
