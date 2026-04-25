@@ -53,34 +53,31 @@
   <!-- Bottom controls -->
   <div class="tp-controls">
 
-    <!-- Row 1: Teleprompter controls -->
+    <!-- Row 1: Reset | START/STOP (play+record merged) | Theme -->
     <div class="tp-ctrl-row1">
       <button class="tp-ctrl-btn tp-btn-reset" id="tpResetBtn" title="Cuộn về đầu">↺</button>
-      <button class="tp-ctrl-btn tp-btn-play"  id="tpPlayBtn"  title="Phát/Dừng">▶</button>
+      <!-- Nút duy nhất: bấm 1 lần = chạy chữ + ghi âm; bấm lại = dừng + phân tích -->
+      <button class="tp-ctrl-btn tp-btn-play tp-btn-main" id="tpPlayBtn" title="Bắt đầu / Dừng">
+        <span id="tpPlayIcon">▶</span>
+        <span id="tpPlayLabel" class="tp-play-label">Bắt đầu</span>
+      </button>
       <button class="tp-ctrl-btn tp-btn-theme" id="tpThemeBtn" title="Đổi nền">☀</button>
     </div>
 
-    <!-- Row 2: Sliders -->
-    <div class="tp-ctrl-row2">
-      <div class="tp-slider-group">
-        <span class="tp-slider-label">⚡ Tốc</span>
+    <!-- Row 2: Speed control với nút − và + hai đầu -->
+    <div class="tp-speed-row">
+      <span class="tp-speed-label">⚡ Tốc độ</span>
+      <div class="tp-speed-ctrl">
+        <button class="tp-speed-step" id="tpSpeedDown" title="Chậm hơn">−</button>
         <input type="range" class="tp-slider" id="tpSpeedSlider" min="1" max="10" value="3"/>
-        <span class="tp-slider-val" id="tpSpeedVal">3</span>
+        <button class="tp-speed-step" id="tpSpeedUp" title="Nhanh hơn">+</button>
       </div>
-      <div class="tp-slider-group">
-        <span class="tp-slider-label">Aa Cỡ</span>
-        <input type="range" class="tp-slider" id="tpFontSlider" min="1" max="5" value="3"/>
-        <span class="tp-slider-val" id="tpFontVal">M</span>
-      </div>
+      <span class="tp-slider-val" id="tpSpeedVal">3</span>
     </div>
 
-    <!-- Row 3: Record button — nút chính kết nối ghi âm -->
-    <div class="tp-rec-row">
-      <button class="tp-rec-btn idle" id="tpRecBtn">
-        <span class="tp-rec-btn-icon">🎤</span>
-        <span class="tp-rec-btn-label" id="tpRecBtnLabel">Bắt đầu ghi âm</span>
-      </button>
-    </div>
+    <!-- Hidden font slider — vẫn giữ trong DOM để JS không lỗi, nhưng ẩn -->
+    <input type="range" id="tpFontSlider" min="1" max="5" value="3" style="display:none"/>
+    <span id="tpFontVal" style="display:none">M</span>
 
   </div>
 </div>
@@ -363,6 +360,19 @@
         <div class="slider-wrap">
           <input type="range" id="defSpeedSlider" min="1" max="10" value="3" step="1"/>
           <span class="slider-val" id="defSpeedVal">3</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Cỡ chữ Teleprompter</div>
+          <div class="setting-sub">Chọn kích thước chữ khi chạy</div>
+        </div>
+        <div class="font-size-btns">
+          <button class="fs-btn" data-tpfont="1" title="XS">XS</button>
+          <button class="fs-btn" data-tpfont="2" title="S">S</button>
+          <button class="fs-btn active" data-tpfont="3" title="M">M</button>
+          <button class="fs-btn" data-tpfont="4" title="L">L</button>
+          <button class="fs-btn" data-tpfont="5" title="XL">XL</button>
         </div>
       </div>
       <div class="setting-row">

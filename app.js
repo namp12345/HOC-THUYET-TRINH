@@ -111,6 +111,7 @@ function loadSettings() {
 
   tpSpeed = s.tpSpeed || 3;
   tpLightMode = s.tpLight || false;
+  tpFontLevel = s.tpFontLevel || 3;
   const dss = document.getElementById('defSpeedSlider');
   const dsv = document.getElementById('defSpeedVal');
   if (dss) { dss.value = tpSpeed; }
@@ -185,6 +186,24 @@ function bindSettings() {
       saveSettings({ tpLight: tpLightMode });
     });
   }
+
+  // Teleprompter font preset buttons (in Settings tab)
+  document.querySelectorAll('.fs-btn[data-tpfont]').forEach(btn => {
+    const level = parseInt(btn.dataset.tpfont);
+    // Mark active on load
+    if (level === tpFontLevel) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      tpFontLevel = level;
+      applyTpFont();
+      saveSettings({ tpFontLevel: tpFontLevel });
+      // Sync hidden slider
+      const fs = document.getElementById('tpFontSlider');
+      if (fs) fs.value = tpFontLevel;
+      // Sync active class
+      document.querySelectorAll('.fs-btn[data-tpfont]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
 
   // Clear data
   const clearBtn = document.getElementById('clearDataBtn');
@@ -473,22 +492,38 @@ function closeTeleprompter() {
 }
 
 function bindTeleprompter() {
+  // ── Close ──
   document.getElementById('tpCloseBtn').addEventListener('click', () => {
     if (tpIsRecording) {
-      if (!confirm('Đang ghi âm. Đóng sẽ dừng ghi âm và mất dữ liệu. Tiếp tục?')) return;
+      if (!confirm('Đang ghi âm. Đóng sẽ dừng và mất dữ liệu. Tiếp tục?')) return;
     }
     closeTeleprompter();
   });
 
-  // Play/pause scroll
+  // ── MAIN BUTTON: play scroll + start recording (1 tap = cả hai) ──
   document.getElementById('tpPlayBtn').addEventListener('click', () => {
-    tpRunning = !tpRunning;
-    updateTpPlayBtn();
-    if (tpRunning) tpTick();
+    if (!tpIsRecording) {
+      // Chưa chạy → bắt đầu: scroll + ghi âm cùng lúc
+      if (!speechSupported) { showToast('⚠️ Dùng Chrome trên Android!'); return; }
+      tpRunning = true;
+      updateTpPlayBtn();
+      tpTick();
+      tpStartRecording();
+    } else {
+      // Đang chạy → dừng: scroll + dừng ghi âm + hiện kết quả
+      tpRunning = false;
+      cancelAnimationFrame(tpAnimFrame);
+      updateTpPlayBtn();
+      tpStopRecording(true);
+    }
   });
 
-  // Reset scroll
+  // ── Reset: cuộn về đầu, dừng tất cả ──
   document.getElementById('tpResetBtn').addEventListener('click', () => {
+    if (tpIsRecording) {
+      if (!confirm('Dừng ghi âm và cuộn về đầu?')) return;
+      tpStopRecording(false);
+    }
     tpScrollPos = 0;
     tpRunning = false;
     updateTpPlayBtn();
@@ -496,7 +531,7 @@ function bindTeleprompter() {
     applyTpScroll();
   });
 
-  // Theme toggle
+  // ── Theme ──
   document.getElementById('tpThemeBtn').addEventListener('click', () => {
     tpLightMode = !tpLightMode;
     const screen = document.getElementById('teleprompterScreen');
@@ -507,32 +542,43 @@ function bindTeleprompter() {
     if (dlt) dlt.checked = tpLightMode;
   });
 
-  // Speed slider
+  // ── Speed slider ──
   const speedSlider = document.getElementById('tpSpeedSlider');
   speedSlider.addEventListener('input', () => {
     tpSpeed = parseInt(speedSlider.value);
     document.getElementById('tpSpeedVal').textContent = tpSpeed;
   });
 
-  // Font slider
+  // ── Speed − + buttons ──
+  document.getElementById('tpSpeedDown').addEventListener('click', () => {
+    tpSpeed = Math.max(1, tpSpeed - 1);
+    document.getElementById('tpSpeedSlider').value = tpSpeed;
+    document.getElementById('tpSpeedVal').textContent = tpSpeed;
+  });
+  document.getElementById('tpSpeedUp').addEventListener('click', () => {
+    tpSpeed = Math.min(10, tpSpeed + 1);
+    document.getElementById('tpSpeedSlider').value = tpSpeed;
+    document.getElementById('tpSpeedVal').textContent = tpSpeed;
+  });
+
+  // ── Font slider (hidden, still functional) ──
   const fontSlider = document.getElementById('tpFontSlider');
-  fontSlider.addEventListener('input', () => {
-    tpFontLevel = parseInt(fontSlider.value);
-    document.getElementById('tpFontVal').textContent = TP_FONT_LABELS[tpFontLevel - 1];
-    applyTpFont();
-  });
+  if (fontSlider) {
+    fontSlider.addEventListener('input', () => {
+      tpFontLevel = parseInt(fontSlider.value);
+      applyTpFont();
+      saveSettings({ tpFontLevel: tpFontLevel });
+    });
+  }
 
-  // Tap viewport = play/pause scroll
+  // ── Tap viewport = play/pause scroll only (không ảnh hưởng ghi âm) ──
   document.getElementById('tpScrollContainer').addEventListener('click', () => {
-    tpRunning = !tpRunning;
-    updateTpPlayBtn();
-    if (tpRunning) tpTick();
-  });
-
-  // ── RECORD BUTTON in teleprompter ──
-  document.getElementById('tpRecBtn').addEventListener('click', () => {
-    if (!speechSupported) { showToast('⚠️ Dùng Chrome trên Android!'); return; }
-    tpIsRecording ? tpStopRecording(true) : tpStartRecording();
+    if (tpIsRecording) {
+      // Chỉ pause/resume scroll, giữ ghi âm
+      tpRunning = !tpRunning;
+      if (tpRunning) tpTick();
+      // Không update play button để tránh nhầm lẫn
+    }
   });
 
   // ── Result modal buttons ──
@@ -546,8 +592,7 @@ function bindTeleprompter() {
     history.unshift({
       id: Date.now(),
       topicId: tpCurrentTopic.id, topicName: tpCurrentTopic.name, topicEmoji: tpCurrentTopic.emoji,
-      ...tpCurrentAnalysis,
-      mode: 'teleprompter',
+      ...tpCurrentAnalysis, mode: 'teleprompter',
       date: new Date().toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
     });
     localStorage.setItem('speakingHistory', JSON.stringify(history));
@@ -613,12 +658,7 @@ function tpStartRecording() {
   }, 1000);
 
   // UI → recording state
-  const recBtn = document.getElementById('tpRecBtn');
-  if (recBtn) {
-    recBtn.className = 'tp-rec-btn recording';
-    document.getElementById('tpRecBtnLabel').textContent = 'Dừng ghi âm';
-    recBtn.querySelector('.tp-rec-btn-icon').textContent = '⏹';
-  }
+  updateTpPlayBtn(); // button chuyển sang "⏹ Dừng & Phân tích"
   const pill = document.getElementById('tpRecPill');
   if (pill) pill.style.display = 'flex';
   const strip = document.getElementById('tpLiveStrip');
@@ -643,20 +683,20 @@ function tpStopRecording(showResult) {
 }
 
 function tpResetRecUI() {
-  const recBtn = document.getElementById('tpRecBtn');
-  if (recBtn) {
-    recBtn.className = 'tp-rec-btn idle';
-    document.getElementById('tpRecBtnLabel').textContent = 'Bắt đầu ghi âm';
-    recBtn.querySelector('.tp-rec-btn-icon').textContent = '🎤';
-  }
+  // Reset pill
   const pill = document.getElementById('tpRecPill');
-  if (pill) { pill.style.display = 'none'; document.getElementById('tpRecTimer').textContent = '00:00'; }
+  if (pill) { pill.style.display = 'none'; }
+  const timer = document.getElementById('tpRecTimer');
+  if (timer) timer.textContent = '00:00';
+  // Reset live strip
   const strip = document.getElementById('tpLiveStrip');
   if (strip) strip.style.display = 'none';
   const liveText = document.getElementById('tpLiveText');
   if (liveText) liveText.textContent = 'Đang lắng nghe…';
   const liveWpm = document.getElementById('tpLiveWpm');
   if (liveWpm) liveWpm.textContent = '';
+  // Reset main button to idle
+  updateTpPlayBtn();
 }
 
 // ── TP Result Modal ───────────────────────────
@@ -758,19 +798,31 @@ function applyTpFont() {
 }
 
 function updateTpPlayBtn() {
-  const btn = document.getElementById('tpPlayBtn');
-  if (btn) btn.textContent = tpRunning ? '⏸' : '▶';
+  const btn   = document.getElementById('tpPlayBtn');
+  const icon  = document.getElementById('tpPlayIcon');
+  const label = document.getElementById('tpPlayLabel');
+  if (!btn) return;
+  if (tpIsRecording) {
+    // Đang ghi âm → hiện trạng thái STOP
+    btn.className = 'tp-ctrl-btn tp-btn-play tp-btn-main rec-state';
+    if (icon)  icon.textContent  = '⏹';
+    if (label) label.textContent = 'Dừng & Phân tích';
+  } else {
+    // Chưa ghi → hiện START
+    btn.className = 'tp-ctrl-btn tp-btn-play tp-btn-main idle-state';
+    if (icon)  icon.textContent  = '▶';
+    if (label) label.textContent = 'Bắt đầu';
+  }
 }
 
 function syncTpSliders() {
   const ss = document.getElementById('tpSpeedSlider');
   const sv = document.getElementById('tpSpeedVal');
   const fs = document.getElementById('tpFontSlider');
-  const fv = document.getElementById('tpFontVal');
   if (ss) ss.value = tpSpeed;
   if (sv) sv.textContent = tpSpeed;
   if (fs) fs.value = tpFontLevel;
-  if (fv) fv.textContent = TP_FONT_LABELS[tpFontLevel - 1];
+  applyTpFont();
 }
 
 // ── SPEECH API ────────────────────────────────

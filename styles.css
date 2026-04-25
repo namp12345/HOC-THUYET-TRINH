@@ -365,50 +365,69 @@ mark.filler-mark { background: #FFE0B2; color: #E65100; border-radius: 3px; padd
   display: flex; align-items: center; gap: 8px;
   background: rgba(255,255,255,.06);
   border-top: 1px solid rgba(255,255,255,.08);
-  padding: 7px 16px; flex-shrink: 0;
-  min-height: 36px;
+  padding: 7px 16px; flex-shrink: 0; min-height: 36px;
 }
 .tp-live-label { font-size: .9rem; flex-shrink: 0; }
 .tp-live-text {
   flex: 1; font-size: .75rem; color: rgba(255,255,255,.75);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-style: italic;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;
 }
-.tp-live-wpm {
-  font-size: .72rem; font-weight: 800; color: var(--orange);
-  flex-shrink: 0; min-width: 60px; text-align: right;
-}
-/* Light mode overrides */
+.tp-live-wpm { font-size: .72rem; font-weight: 800; color: var(--orange); flex-shrink: 0; min-width: 60px; text-align: right; }
 #teleprompterScreen.tp-light .tp-live-strip { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.08); }
 #teleprompterScreen.tp-light .tp-live-text  { color: rgba(0,0,0,.6); }
 
-/* Record row */
-.tp-rec-row {
-  margin-top: 10px; display: flex; justify-content: center;
+/* ── Merged Play+Record button (main action) ── */
+.tp-btn-main {
+  width: auto !important; height: auto !important;
+  border-radius: 50px !important;
+  padding: 12px 28px !important;
+  display: flex !important; align-items: center; gap: 8px;
+  font-size: .95rem !important;
+  flex: 1; max-width: 220px;
 }
-.tp-rec-btn {
-  display: flex; align-items: center; gap: 10px;
-  border: none; border-radius: 50px; cursor: pointer;
-  padding: 13px 28px; font-family: var(--font-body);
-  font-weight: 800; font-size: .95rem;
-  transition: all .2s; width: 100%; max-width: 320px; justify-content: center;
+.tp-play-label { font-size: .85rem; font-weight: 800; white-space: nowrap; }
+
+/* idle state */
+.tp-btn-main.idle-state {
+  background: linear-gradient(135deg, var(--orange), var(--orange-dk)) !important;
+  box-shadow: 0 6px 20px rgba(232,96,44,.45) !important;
+  color: #fff !important;
 }
-.tp-rec-btn:active { transform: scale(.96); }
-.tp-rec-btn.idle {
-  background: rgba(232,96,44,.18); color: var(--orange);
-  border: 2px solid rgba(232,96,44,.45);
-}
-.tp-rec-btn.recording {
-  background: #E53935; color: #fff;
-  box-shadow: 0 0 0 0 rgba(229,57,53,.5);
-  animation: recBtnPulse 1.4s ease-in-out infinite;
-  border: 2px solid transparent;
+/* recording state */
+.tp-btn-main.rec-state {
+  background: #E53935 !important;
+  color: #fff !important;
+  animation: recBtnPulse 1.4s ease-in-out infinite !important;
+  box-shadow: none !important;
 }
 @keyframes recBtnPulse {
   0%,100% { box-shadow: 0 6px 20px rgba(229,57,53,.5); }
   50%      { box-shadow: 0 6px 32px rgba(229,57,53,.7), 0 0 0 10px rgba(229,57,53,.12); }
 }
-.tp-rec-btn-icon { font-size: 1.2rem; }
-/* Light mode */
-#teleprompterScreen.tp-light .tp-rec-btn.idle { background: rgba(232,96,44,.12); }
+
+/* ── Speed row with − + buttons ── */
+.tp-speed-row {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,.06); border-radius: 12px;
+  padding: 10px 14px; margin-top: 10px;
+}
+.tp-speed-label { font-size: .68rem; font-weight: 800; color: rgba(255,255,255,.5); flex-shrink: 0; min-width: 54px; }
+.tp-speed-ctrl { flex: 1; display: flex; align-items: center; gap: 6px; }
+.tp-speed-step {
+  width: 34px; height: 34px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,.15); color: #fff;
+  font-size: 1.2rem; font-weight: 900; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all .15s; line-height: 1;
+}
+.tp-speed-step:active { transform: scale(.88); background: var(--orange); }
+.tp-slider { flex: 1; -webkit-appearance: none; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); outline: none; }
+.tp-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--orange); cursor: pointer; box-shadow: 0 2px 8px rgba(232,96,44,.5); }
+.tp-slider-val { font-size: .82rem; font-weight: 800; color: var(--orange); min-width: 18px; text-align: center; }
+
+/* Light mode overrides */
+#teleprompterScreen.tp-light .tp-speed-row { background: rgba(0,0,0,.06); }
+#teleprompterScreen.tp-light .tp-speed-label { color: rgba(0,0,0,.45); }
+#teleprompterScreen.tp-light .tp-speed-step { background: rgba(0,0,0,.1); color: var(--text-dark); }
+#teleprompterScreen.tp-light .tp-slider { background: rgba(0,0,0,.15); }
 
