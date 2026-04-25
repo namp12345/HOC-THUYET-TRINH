@@ -17,14 +17,22 @@
 <body>
 
 <!-- ══════════════════════════════════════════════
-     TELEPROMPTER FULLSCREEN OVERLAY
+     TELEPROMPTER FULLSCREEN OVERLAY  (v4)
 ══════════════════════════════════════════════ -->
 <div id="teleprompterScreen">
+
+  <!-- Top bar: topic name + rec indicator + close -->
   <div class="tp-topbar">
     <span class="tp-topic-name" id="tpTopicName">—</span>
+    <!-- Recording status pill (hiển thị khi đang ghi) -->
+    <div class="tp-rec-pill" id="tpRecPill" style="display:none">
+      <span class="tp-rec-dot"></span>
+      <span id="tpRecTimer">00:00</span>
+    </div>
     <button class="tp-close-btn" id="tpCloseBtn" title="Đóng">✕</button>
   </div>
 
+  <!-- Script viewport -->
   <div class="tp-viewport">
     <div class="tp-fade-top"></div>
     <div class="tp-focus-line"></div>
@@ -35,12 +43,24 @@
     </div>
   </div>
 
+  <!-- Live transcript mini strip (hiện khi đang ghi âm) -->
+  <div class="tp-live-strip" id="tpLiveStrip" style="display:none">
+    <span class="tp-live-label">🎤</span>
+    <span class="tp-live-text" id="tpLiveText">Đang lắng nghe…</span>
+    <span class="tp-live-wpm" id="tpLiveWpm"></span>
+  </div>
+
+  <!-- Bottom controls -->
   <div class="tp-controls">
+
+    <!-- Row 1: Teleprompter controls -->
     <div class="tp-ctrl-row1">
       <button class="tp-ctrl-btn tp-btn-reset" id="tpResetBtn" title="Cuộn về đầu">↺</button>
       <button class="tp-ctrl-btn tp-btn-play"  id="tpPlayBtn"  title="Phát/Dừng">▶</button>
       <button class="tp-ctrl-btn tp-btn-theme" id="tpThemeBtn" title="Đổi nền">☀</button>
     </div>
+
+    <!-- Row 2: Sliders -->
     <div class="tp-ctrl-row2">
       <div class="tp-slider-group">
         <span class="tp-slider-label">⚡ Tốc</span>
@@ -52,6 +72,63 @@
         <input type="range" class="tp-slider" id="tpFontSlider" min="1" max="5" value="3"/>
         <span class="tp-slider-val" id="tpFontVal">M</span>
       </div>
+    </div>
+
+    <!-- Row 3: Record button — nút chính kết nối ghi âm -->
+    <div class="tp-rec-row">
+      <button class="tp-rec-btn idle" id="tpRecBtn">
+        <span class="tp-rec-btn-icon">🎤</span>
+        <span class="tp-rec-btn-label" id="tpRecBtnLabel">Bắt đầu ghi âm</span>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Result modal sau khi dừng ghi âm trong Teleprompter -->
+<div class="modal-overlay" id="tpResultModal">
+  <div class="modal-sheet" style="max-height:85dvh">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📊 Kết quả bài luyện</div>
+
+    <!-- Score ring mini -->
+    <div class="score-ring-wrap" style="margin-bottom:12px">
+      <svg class="score-svg" viewBox="0 0 110 110">
+        <circle class="score-bg-ring" cx="55" cy="55" r="44"/>
+        <circle class="score-ring" id="tpScoreRing" cx="55" cy="55" r="44"/>
+        <text class="score-num-text" x="55" y="60" text-anchor="middle" id="tpScoreNumber">0</text>
+        <text class="score-lbl-text" x="55" y="72" text-anchor="middle">/100</text>
+      </svg>
+      <div id="tpScoreLabel" style="font-size:.95rem;font-weight:800;color:#2C1A0E;margin-top:4px"></div>
+    </div>
+
+    <!-- Quick stats -->
+    <div class="stats-grid" style="margin-bottom:14px">
+      <div class="stat-box"><div class="stat-value" id="tpResWords">—</div><div class="stat-label">Tổng từ</div></div>
+      <div class="stat-box"><div class="stat-value" id="tpResWpm">—</div><div class="stat-label">Từ/phút</div></div>
+      <div class="stat-box"><div class="stat-value" id="tpResTime">—</div><div class="stat-label">Thời gian</div></div>
+      <div class="stat-box"><div class="stat-value" id="tpResFillers" style="color:#E65100">—</div><div class="stat-label">Từ đệm</div></div>
+      <div class="stat-box"><div class="stat-value" id="tpResPauses" style="color:#1A7F7A">—</div><div class="stat-label">Ngắt nghỉ</div></div>
+      <div class="stat-box"><div class="stat-value" id="tpResSync" style="color:#D4A017">—</div><div class="stat-label">Đồng bộ %</div></div>
+    </div>
+
+    <!-- Badges -->
+    <div class="badge-row" id="tpBadgeRow" style="margin-bottom:14px"></div>
+
+    <!-- Feedback -->
+    <div class="feedback-box" style="margin-bottom:12px">
+      <p id="tpResFeedback"></p>
+    </div>
+
+    <!-- AI feedback -->
+    <div class="ai-feedback-box" id="tpAiFeedbackBox" style="display:none;margin-bottom:14px">
+      <div class="ai-feedback-title"><span>🤖</span> Nhận xét từ AI Coach</div>
+      <div id="tpAiFeedbackContent"></div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn btn-ghost" id="tpResultClose">Đóng</button>
+      <button class="btn btn-primary" id="tpResultSave">💾 Lưu bài luyện</button>
     </div>
   </div>
 </div>

@@ -410,55 +410,84 @@ function deleteCustomTopic(id) {
   showToast('🗑️ Đã xoá chủ đề.');
 }
 
-// ── TELEPROMPTER ──────────────────────────────
+// ══════════════════════════════════════════════
+// TELEPROMPTER v4 — Integrated Recording
+// ══════════════════════════════════════════════
+
+// Extra state for TP recording
+let tpIsRecording = false;
+let tpRecognition = null;
+let tpTimerInterval = null;
+let tpElapsedSeconds = 0;
+let tpTranscript = '';
+let tpPauseCount = 0;
+let tpLastWordTime = Date.now();
+let tpCurrentAnalysis = null;
+let wakeLock = null;
+
 function openTeleprompter(topic) {
+  // Set the topic for recording context too
+  selectedTopic = topic;
   tpCurrentTopic = topic;
+
   const screen = document.getElementById('teleprompterScreen');
-  const tpText = document.getElementById('tpText');
-  const tpName = document.getElementById('tpTopicName');
+  document.getElementById('tpText').textContent = topic.script || '';
+  document.getElementById('tpTopicName').textContent = `${topic.emoji} ${topic.name}`;
 
-  // Inject content
-  tpText.textContent = topic.script || '';
-  tpName.textContent = `${topic.emoji} ${topic.name}`;
-
-  // Apply defaults from settings
   const s = getSavedSettings();
-  tpSpeed = parseInt(document.getElementById('tpSpeedSlider').value) || s.tpSpeed || 3;
+  tpSpeed = s.tpSpeed || 3;
   tpLightMode = s.tpLight || false;
   if (tpLightMode) screen.classList.add('tp-light'); else screen.classList.remove('tp-light');
 
-  // Reset scroll
+  // Reset scroll & playback
   tpScrollPos = 0;
   tpRunning = false;
   applyTpFont();
   updateTpPlayBtn();
   syncTpSliders();
 
-  // Prevent screen sleep (if supported)
-  if (navigator.wakeLock) {
-    navigator.wakeLock.request('screen').catch(() => {});
-  }
+  // Reset recording state
+  tpStopRecording(false); // silently stop if any
+  tpResetRecUI();
+
+  // Wake lock
+  if (navigator.wakeLock) navigator.wakeLock.request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
 
   screen.classList.add('open');
   document.body.style.overflow = 'hidden';
 }
 
 function closeTeleprompter() {
+  // Stop scroll
   tpRunning = false;
   cancelAnimationFrame(tpAnimFrame);
+
+  // Stop recording if active
+  if (tpIsRecording) tpStopRecording(false);
+
   document.getElementById('teleprompterScreen').classList.remove('open');
   document.body.style.overflow = '';
+
+  // Release wake lock
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 
 function bindTeleprompter() {
-  document.getElementById('tpCloseBtn').addEventListener('click', closeTeleprompter);
+  document.getElementById('tpCloseBtn').addEventListener('click', () => {
+    if (tpIsRecording) {
+      if (!confirm('Đang ghi âm. Đóng sẽ dừng ghi âm và mất dữ liệu. Tiếp tục?')) return;
+    }
+    closeTeleprompter();
+  });
 
+  // Play/pause scroll
   document.getElementById('tpPlayBtn').addEventListener('click', () => {
     tpRunning = !tpRunning;
     updateTpPlayBtn();
     if (tpRunning) tpTick();
   });
 
+  // Reset scroll
   document.getElementById('tpResetBtn').addEventListener('click', () => {
     tpScrollPos = 0;
     tpRunning = false;
@@ -467,6 +496,7 @@ function bindTeleprompter() {
     applyTpScroll();
   });
 
+  // Theme toggle
   document.getElementById('tpThemeBtn').addEventListener('click', () => {
     tpLightMode = !tpLightMode;
     const screen = document.getElementById('teleprompterScreen');
@@ -479,36 +509,234 @@ function bindTeleprompter() {
 
   // Speed slider
   const speedSlider = document.getElementById('tpSpeedSlider');
-  const speedVal    = document.getElementById('tpSpeedVal');
   speedSlider.addEventListener('input', () => {
     tpSpeed = parseInt(speedSlider.value);
-    speedVal.textContent = tpSpeed;
+    document.getElementById('tpSpeedVal').textContent = tpSpeed;
   });
 
   // Font slider
   const fontSlider = document.getElementById('tpFontSlider');
-  const fontVal    = document.getElementById('tpFontVal');
   fontSlider.addEventListener('input', () => {
     tpFontLevel = parseInt(fontSlider.value);
-    fontVal.textContent = TP_FONT_LABELS[tpFontLevel - 1];
+    document.getElementById('tpFontVal').textContent = TP_FONT_LABELS[tpFontLevel - 1];
     applyTpFont();
   });
 
-  // Touch to play/pause on viewport
+  // Tap viewport = play/pause scroll
   document.getElementById('tpScrollContainer').addEventListener('click', () => {
     tpRunning = !tpRunning;
     updateTpPlayBtn();
     if (tpRunning) tpTick();
   });
+
+  // ── RECORD BUTTON in teleprompter ──
+  document.getElementById('tpRecBtn').addEventListener('click', () => {
+    if (!speechSupported) { showToast('⚠️ Dùng Chrome trên Android!'); return; }
+    tpIsRecording ? tpStopRecording(true) : tpStartRecording();
+  });
+
+  // ── Result modal buttons ──
+  document.getElementById('tpResultClose').addEventListener('click', () => {
+    document.getElementById('tpResultModal').classList.remove('open');
+  });
+
+  document.getElementById('tpResultSave').addEventListener('click', () => {
+    if (!tpCurrentAnalysis || !tpCurrentTopic) return;
+    const history = getHistory();
+    history.unshift({
+      id: Date.now(),
+      topicId: tpCurrentTopic.id, topicName: tpCurrentTopic.name, topicEmoji: tpCurrentTopic.emoji,
+      ...tpCurrentAnalysis,
+      mode: 'teleprompter',
+      date: new Date().toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    });
+    localStorage.setItem('speakingHistory', JSON.stringify(history));
+    updateStreakOnSave();
+    updateStreak();
+    document.getElementById('tpResultSave').style.display = 'none';
+    showToast('✅ Đã lưu bài luyện!');
+  });
 }
 
+// ── TP Recording logic ────────────────────────
+function tpStartRecording() {
+  if (!speechSupported) return;
+  tpIsRecording = true;
+  tpTranscript = '';
+  tpElapsedSeconds = 0;
+  tpPauseCount = 0;
+  tpLastWordTime = Date.now();
+  tpCurrentAnalysis = null;
+
+  // Init recognition for TP (separate instance)
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  tpRecognition = new SR();
+  tpRecognition.lang = 'vi-VN';
+  tpRecognition.continuous = true;
+  tpRecognition.interimResults = true;
+
+  tpRecognition.onresult = (e) => {
+    const now = Date.now();
+    if (now - tpLastWordTime > 2000) tpPauseCount++;
+    tpLastWordTime = now;
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) tpTranscript += t + ' ';
+      else interim = t;
+    }
+    // Update live strip
+    const liveText = document.getElementById('tpLiveText');
+    const liveWpm  = document.getElementById('tpLiveWpm');
+    if (liveText) {
+      const preview = (tpTranscript + interim).trim();
+      liveText.textContent = preview ? preview.slice(-80) : 'Đang lắng nghe…';
+    }
+    if (liveWpm && tpElapsedSeconds > 5) {
+      const w = tpTranscript.trim().split(/\s+/).filter(Boolean).length;
+      liveWpm.textContent = Math.round(w / (tpElapsedSeconds / 60)) + ' wpm';
+    }
+  };
+
+  tpRecognition.onerror = (e) => {
+    if (e.error !== 'no-speech') { tpStopRecording(true); showToast('⚠️ Lỗi mic: ' + e.error); }
+  };
+  tpRecognition.onend = () => { if (tpIsRecording) { try { tpRecognition.start(); } catch (_) {} } };
+
+  try { tpRecognition.start(); } catch (_) {}
+
+  // Timer
+  tpTimerInterval = setInterval(() => {
+    tpElapsedSeconds++;
+    const timerEl = document.getElementById('tpRecTimer');
+    if (timerEl) timerEl.textContent = formatTime(tpElapsedSeconds);
+  }, 1000);
+
+  // UI → recording state
+  const recBtn = document.getElementById('tpRecBtn');
+  if (recBtn) {
+    recBtn.className = 'tp-rec-btn recording';
+    document.getElementById('tpRecBtnLabel').textContent = 'Dừng ghi âm';
+    recBtn.querySelector('.tp-rec-btn-icon').textContent = '⏹';
+  }
+  const pill = document.getElementById('tpRecPill');
+  if (pill) pill.style.display = 'flex';
+  const strip = document.getElementById('tpLiveStrip');
+  if (strip) strip.style.display = 'flex';
+}
+
+function tpStopRecording(showResult) {
+  if (!tpIsRecording && !showResult) return;
+  tpIsRecording = false;
+  clearInterval(tpTimerInterval);
+  try { if (tpRecognition) tpRecognition.stop(); } catch (_) {}
+
+  tpResetRecUI();
+
+  if (showResult && tpTranscript.trim().length > 0) {
+    tpCurrentAnalysis = analyzeTranscript(tpTranscript, tpElapsedSeconds);
+    tpShowResult(tpCurrentAnalysis);
+    tpGetAIFeedback(tpTranscript, tpCurrentAnalysis);
+  } else if (showResult) {
+    showToast('Không nhận được giọng nói. Thử lại!');
+  }
+}
+
+function tpResetRecUI() {
+  const recBtn = document.getElementById('tpRecBtn');
+  if (recBtn) {
+    recBtn.className = 'tp-rec-btn idle';
+    document.getElementById('tpRecBtnLabel').textContent = 'Bắt đầu ghi âm';
+    recBtn.querySelector('.tp-rec-btn-icon').textContent = '🎤';
+  }
+  const pill = document.getElementById('tpRecPill');
+  if (pill) { pill.style.display = 'none'; document.getElementById('tpRecTimer').textContent = '00:00'; }
+  const strip = document.getElementById('tpLiveStrip');
+  if (strip) strip.style.display = 'none';
+  const liveText = document.getElementById('tpLiveText');
+  if (liveText) liveText.textContent = 'Đang lắng nghe…';
+  const liveWpm = document.getElementById('tpLiveWpm');
+  if (liveWpm) liveWpm.textContent = '';
+}
+
+// ── TP Result Modal ───────────────────────────
+function tpShowResult(a) {
+  const modal = document.getElementById('tpResultModal');
+
+  // Score ring
+  const ring = document.getElementById('tpScoreRing');
+  if (ring) {
+    const c = 2 * Math.PI * 44;
+    ring.style.strokeDasharray = c;
+    ring.style.strokeDashoffset = c;
+    setTimeout(() => { ring.style.strokeDashoffset = c - (a.score / 100) * c; }, 150);
+    ring.style.stroke = a.score >= 75 ? '#1A7F7A' : a.score >= 50 ? '#D4A017' : '#E53935';
+  }
+  setEl('tpScoreNumber', a.score);
+  setEl('tpScoreLabel', a.score >= 80 ? '🌟 Xuất sắc!' : a.score >= 65 ? '👍 Khá tốt' : a.score >= 50 ? '📈 Trung bình' : '💪 Cần luyện');
+
+  setEl('tpResWords',   a.wordCount);
+  setEl('tpResWpm',     a.wpm);
+  setEl('tpResTime',    formatTime(a.seconds));
+  setEl('tpResFillers', a.fillerCount);
+  setEl('tpResPauses',  a.pauseCount);
+
+  // Sync score: how much of the script the user covered
+  const scriptWords = tpCurrentTopic ? tokenize(tpCurrentTopic.script || '').length : 0;
+  const syncPct = scriptWords > 0 ? Math.min(100, Math.round((a.wordCount / scriptWords) * 100)) : '—';
+  setEl('tpResSync', syncPct + (syncPct !== '—' ? '%' : ''));
+
+  // Badges
+  const badgeRow = document.getElementById('tpBadgeRow');
+  if (badgeRow) {
+    const badges = [
+      a.wpm < 90 ? ['🐢 Hơi chậm','warn'] : a.wpm <= 130 ? ['✅ Tốc độ tốt','good'] : ['⚡ Hơi nhanh','warn'],
+      parseFloat(a.fillerRate) === 0 ? ['🎯 Không từ đệm!','good'] : [`🚫 ${a.fillerCount} từ đệm`,'warn'],
+      a.hasOpening ? ['✅ Có lời chào','good'] : ['❌ Thiếu lời chào','error'],
+      a.hasClosing  ? ['✅ Có kết bài','good']  : ['❌ Thiếu kết bài','error'],
+    ];
+    badgeRow.innerHTML = badges.map(([t,c]) => `<span class="badge ${c}">${t}</span>`).join('');
+  }
+
+  setEl('tpResFeedback', generateFeedback(a));
+
+  // Show/hide save button
+  document.getElementById('tpResultSave').style.display = 'flex';
+
+  modal.classList.add('open');
+}
+
+async function tpGetAIFeedback(transcript, analysis) {
+  const box     = document.getElementById('tpAiFeedbackBox');
+  const content = document.getElementById('tpAiFeedbackContent');
+  if (!box || !content) return;
+  box.style.display = 'block';
+  content.innerHTML = '<div class="ai-loading"><span class="ai-spinner"></span> AI đang phân tích…</div>';
+
+  const prompt = `Bạn là huấn luyện viên thuyết trình chuyên nghiệp cho hướng dẫn viên du lịch Việt Nam tại Đà Nẵng.
+Phân tích bài nói dưới đây (được ghi trong chế độ Teleprompter) và đưa ra nhận xét ngắn gọn bằng tiếng Việt (tối đa 100 từ): điểm mạnh, điều cần cải thiện, lời khuyên thực tế.
+Dữ liệu: Chủ đề: ${tpCurrentTopic?.name||'?'} | Từ: ${analysis.wordCount} | WPM: ${analysis.wpm} | Từ đệm: ${analysis.fillerCount} | Lời chào: ${analysis.hasOpening?'Có':'Không'} | Kết bài: ${analysis.hasClosing?'Có':'Không'} | Điểm: ${analysis.score}/100
+Transcript: "${transcript.substring(0,350)}${transcript.length>350?'...':''}"
+Viết thành đoạn văn tự nhiên, khích lệ, không dùng bullet points.`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] })
+    });
+    const data = await res.json();
+    const text = data.content?.map(c => c.text || '').join('') || '';
+    content.innerHTML = text ? `<p>${text}</p>` : '<p>Không nhận được phản hồi AI.</p>';
+  } catch {
+    content.innerHTML = '<p style="opacity:.6;font-size:.82rem">Không kết nối được AI.</p>';
+  }
+}
+
+// ── TP Scroll helpers ─────────────────────────
 function tpTick() {
   if (!tpRunning) return;
-  // Speed: 1 = 0.3px/frame, 10 = 3px/frame
   tpScrollPos += tpSpeed * 0.3;
   applyTpScroll();
-
-  // Stop at bottom
   const wrapper = document.querySelector('.tp-text-wrapper');
   const container = document.getElementById('tpScrollContainer');
   if (wrapper && tpScrollPos >= wrapper.scrollHeight - container.clientHeight) {
@@ -516,7 +744,6 @@ function tpTick() {
     updateTpPlayBtn();
     return;
   }
-
   tpAnimFrame = requestAnimationFrame(tpTick);
 }
 
