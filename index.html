@@ -16,7 +16,89 @@
 </head>
 <body>
 
-<!-- ── HEADER ── -->
+<!-- ══════════════════════════════════════════════
+     TELEPROMPTER FULLSCREEN OVERLAY
+══════════════════════════════════════════════ -->
+<div id="teleprompterScreen">
+  <div class="tp-topbar">
+    <span class="tp-topic-name" id="tpTopicName">—</span>
+    <button class="tp-close-btn" id="tpCloseBtn" title="Đóng">✕</button>
+  </div>
+
+  <div class="tp-viewport">
+    <div class="tp-fade-top"></div>
+    <div class="tp-focus-line"></div>
+    <div class="tp-scroll-container" id="tpScrollContainer">
+      <div class="tp-text-wrapper">
+        <div class="tp-text" id="tpText"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tp-controls">
+    <div class="tp-ctrl-row1">
+      <button class="tp-ctrl-btn tp-btn-reset" id="tpResetBtn" title="Cuộn về đầu">↺</button>
+      <button class="tp-ctrl-btn tp-btn-play"  id="tpPlayBtn"  title="Phát/Dừng">▶</button>
+      <button class="tp-ctrl-btn tp-btn-theme" id="tpThemeBtn" title="Đổi nền">☀</button>
+    </div>
+    <div class="tp-ctrl-row2">
+      <div class="tp-slider-group">
+        <span class="tp-slider-label">⚡ Tốc</span>
+        <input type="range" class="tp-slider" id="tpSpeedSlider" min="1" max="10" value="3"/>
+        <span class="tp-slider-val" id="tpSpeedVal">3</span>
+      </div>
+      <div class="tp-slider-group">
+        <span class="tp-slider-label">Aa Cỡ</span>
+        <input type="range" class="tp-slider" id="tpFontSlider" min="1" max="5" value="3"/>
+        <span class="tp-slider-val" id="tpFontVal">M</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     TOPIC MODAL (Add / Edit)
+══════════════════════════════════════════════ -->
+<div class="modal-overlay" id="topicModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="topicModalTitle">➕ Thêm chủ đề mới</div>
+
+    <div class="form-group">
+      <label class="form-label">📌 Tên chủ đề *</label>
+      <input type="text" class="form-input" id="tmName" placeholder="VD: Phố cổ Hội An…" maxlength="60"/>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">🎯 Chọn icon</label>
+      <div class="emoji-picker" id="emojiPicker"></div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">⏱️ Thời lượng gợi ý</label>
+      <input type="text" class="form-input" id="tmDuration" placeholder="VD: 2-3 phút" maxlength="20"/>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">📝 Nội dung bài nói / Kịch bản *</label>
+      <textarea class="form-textarea" id="tmScript" placeholder="Nhập nội dung bài thuyết trình đầy đủ của bạn ở đây…" rows="6"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">💬 Ghi chú thêm (tuỳ chọn)</label>
+      <input type="text" class="form-input" id="tmNote" placeholder="VD: Nhớ nêu câu chuyện con rồng…" maxlength="100"/>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn btn-ghost" id="topicModalCancel">Huỷ</button>
+      <button class="btn btn-primary" id="topicModalSave">💾 Lưu chủ đề</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     APP HEADER
+══════════════════════════════════════════════ -->
 <header class="app-header">
   <div class="header-top">
     <div class="header-icon">🎤</div>
@@ -26,17 +108,21 @@
     </div>
   </div>
   <div class="streak-bar">
-    <div class="streak-item">🔥 <span class="streak-num" id="streakCount">0</span>&nbsp;ngày liên tiếp</div>
-    <div class="streak-item" style="margin-left:auto">🎯 <span id="totalSessions">0</span>&nbsp;bài</div>
+    <div class="streak-item">🔥&nbsp;<span class="streak-num" id="streakCount">0</span>&nbsp;ngày</div>
+    <div class="streak-item">🎯&nbsp;<span id="totalSessions">0</span>&nbsp;bài luyện</div>
   </div>
   <nav class="tab-bar" role="tablist">
-    <button class="tab-btn active" data-tab="practice">🎙️ Luyện tập</button>
+    <button class="tab-btn active" data-tab="practice">🎙️ Luyện</button>
     <button class="tab-btn" data-tab="history">📚 Lịch sử</button>
     <button class="tab-btn" data-tab="stats">📊 Tiến bộ</button>
     <button class="tab-btn" data-tab="tips">💡 Mẹo</button>
+    <button class="tab-btn" data-tab="settings">⚙️ Cài đặt</button>
   </nav>
 </header>
 
+<!-- ══════════════════════════════════════════════
+     MAIN CONTENT
+══════════════════════════════════════════════ -->
 <main>
 
   <!-- ═══ TAB: PRACTICE ═══ -->
@@ -49,14 +135,20 @@
     <p class="section-label">📍 Chọn chủ đề luyện tập</p>
     <div class="topic-grid" id="topicGrid"></div>
 
+    <!-- Selected script -->
     <div id="scriptSection" style="display:none">
       <p class="section-label">📖 Bài mẫu tham khảo</p>
       <div class="script-card">
         <h3 id="scriptTopicName"></h3>
         <p class="script-text" id="scriptText"></p>
       </div>
+      <!-- Quick Teleprompter launch -->
+      <button class="btn btn-teal" id="quickTeleBtn" style="margin-top:10px">
+        📺 Mở Teleprompter cho chủ đề này
+      </button>
     </div>
 
+    <!-- Recorder -->
     <p class="section-label">🎙️ Ghi âm bài nói</p>
     <div class="recorder-card">
       <div class="recorder-status" id="recStatus">
@@ -80,7 +172,6 @@
     <!-- ── RESULT CARD ── -->
     <div class="result-card" id="resultCard">
 
-      <!-- Score Ring -->
       <div class="score-ring-wrap">
         <svg class="score-svg" viewBox="0 0 110 110">
           <circle class="score-bg-ring" cx="55" cy="55" r="44"/>
@@ -91,7 +182,6 @@
         <div id="scoreLabel"></div>
       </div>
 
-      <!-- Stats Grid -->
       <div class="stats-grid">
         <div class="stat-box"><div class="stat-value" id="resWords">—</div><div class="stat-label">Tổng từ</div></div>
         <div class="stat-box"><div class="stat-value" id="resWpm">—</div><div class="stat-label">Từ/phút</div></div>
@@ -101,7 +191,6 @@
         <div class="stat-box"><div class="stat-value" id="resPauses" style="color:#1A7F7A">—</div><div class="stat-label">Ngắt nghỉ</div></div>
       </div>
 
-      <!-- Rating badges -->
       <p class="section-label">🏷️ Đánh giá</p>
       <div class="badge-row">
         <span class="badge" id="resSpeedBadge"></span>
@@ -111,25 +200,18 @@
         <span class="badge" id="resCloseBadge"></span>
       </div>
 
-      <!-- Keyword coverage -->
       <p class="section-label">🗝️ Độ bao quát chủ đề</p>
       <div class="kw-bar-wrap"><div class="kw-bar" id="keywordBar" style="width:0%"></div></div>
       <div class="kw-text" id="keywordText">—</div>
 
-      <!-- Filler word breakdown -->
       <p class="section-label">🚫 Từ đệm phát hiện</p>
       <div class="filler-chips" id="fillerList"></div>
 
-      <!-- Transcript with highlights -->
-      <p class="section-label">📝 Transcript (từ đệm được đánh dấu)</p>
+      <p class="section-label">📝 Transcript (từ đệm được đánh dấu cam)</p>
       <div class="transcript-box" id="resTranscript"></div>
 
-      <!-- Local feedback -->
-      <div class="feedback-box">
-        <p id="resFeedback"></p>
-      </div>
+      <div class="feedback-box"><p id="resFeedback"></p></div>
 
-      <!-- AI Feedback -->
       <div class="ai-feedback-box" id="aiFeedbackBox">
         <div class="ai-feedback-title"><span>🤖</span> Nhận xét từ AI Coach</div>
         <div id="aiFeedbackContent"></div>
@@ -162,8 +244,85 @@
     <div id="tipsList"></div>
   </section>
 
+  <!-- ═══ TAB: SETTINGS ═══ -->
+  <section id="panel-settings" class="tab-panel" role="tabpanel">
+    <p class="section-label">⚙️ Cài đặt ứng dụng</p>
+
+    <!-- Font Size -->
+    <div class="settings-section">
+      <h3>🔤 Cỡ chữ toàn ứng dụng</h3>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Kích thước chữ</div>
+          <div class="setting-sub">Áp dụng ngay cho toàn bộ app</div>
+        </div>
+        <div class="font-size-btns">
+          <button class="fs-btn" data-scale="0.85" title="Nhỏ">S</button>
+          <button class="fs-btn active" data-scale="1" title="Vừa">M</button>
+          <button class="fs-btn" data-scale="1.18" title="Lớn">L</button>
+          <button class="fs-btn" data-scale="1.38" title="Rất lớn">XL</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Tinh chỉnh</div>
+          <div class="setting-sub">Kéo thanh để điều chỉnh tự do</div>
+        </div>
+        <div class="slider-wrap">
+          <input type="range" id="fontScaleSlider" min="80" max="150" value="100" step="5"/>
+          <span class="slider-val" id="fontScaleVal">100%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Teleprompter defaults -->
+    <div class="settings-section">
+      <h3>📺 Teleprompter mặc định</h3>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Tốc độ cuộn mặc định</div>
+          <div class="setting-sub">1 = chậm, 10 = nhanh</div>
+        </div>
+        <div class="slider-wrap">
+          <input type="range" id="defSpeedSlider" min="1" max="10" value="3" step="1"/>
+          <span class="slider-val" id="defSpeedVal">3</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Nền teleprompter</div>
+          <div class="setting-sub">Tối / Sáng</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="tpDefaultLight"/>
+          <div class="toggle-track"></div>
+        </label>
+      </div>
+    </div>
+
+    <!-- App info -->
+    <div class="settings-section">
+      <h3>ℹ️ Thông tin</h3>
+      <div class="setting-row">
+        <div class="setting-label">Phiên bản</div>
+        <div style="font-size:.82rem;color:var(--text-light);font-weight:700">v3.0</div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">Dữ liệu lưu cục bộ</div>
+        <div style="font-size:.82rem;color:var(--good);font-weight:700">✅ localStorage</div>
+      </div>
+      <div class="setting-row" style="border:none">
+        <button class="btn btn-ghost" id="clearDataBtn" style="width:auto;padding:10px 18px;font-size:.8rem">
+          🗑️ Xoá toàn bộ dữ liệu
+        </button>
+      </div>
+    </div>
+
+  </section>
+
 </main>
 
+<!-- Toast -->
 <div class="toast" id="toast" role="alert" aria-live="polite"></div>
 
 <script src="./app.js"></script>
