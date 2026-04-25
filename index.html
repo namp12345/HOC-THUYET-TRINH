@@ -291,7 +291,25 @@
         <div id="aiFeedbackContent"></div>
       </div>
 
-      <button class="btn btn-primary" id="saveBtn" style="display:none">💾 Lưu bài luyện</button>
+      <!-- ── PLAYBACK PANEL ── -->
+      <div class="playback-panel" id="playbackPanel" style="display:none">
+        <div class="playback-title">🎧 Nghe lại giọng của bạn</div>
+        <div class="playback-inner">
+          <button class="playback-btn" id="playbackPlayBtn" title="Phát / Tạm dừng">▶</button>
+          <div class="playback-progress-wrap" id="playbackProgressWrap">
+            <div class="playback-bar">
+              <div class="playback-filled" id="playbackFilled" style="width:0%"></div>
+              <div class="playback-thumb" id="playbackThumb" style="left:0%"></div>
+            </div>
+          </div>
+          <span class="playback-time" id="playbackTime">0:00</span>
+        </div>
+        <div class="playback-hint">💡 Lắng nghe từ đệm, tốc độ và nhịp điệu giọng nói của bạn</div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn btn-primary" id="saveBtn" style="display:none;flex:1">💾 Lưu bài luyện</button>
+      </div>
     </div>
 
   </section>

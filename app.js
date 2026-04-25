@@ -66,8 +66,16 @@ let speechSupported = false;
 let currentAnalysis = null;
 let pauseCount = 0;
 let lastWordTime = Date.now();
-let editingTopicId = null;   // null = add mode
+let editingTopicId = null;
 let selectedEmoji = '🎯';
+
+// MediaRecorder for audio playback
+let mediaRecorder = null;
+let audioChunks = [];
+let currentAudioBlob = null;
+let currentAudioUrl = null;
+let audioPlayer = null;        // HTMLAudioElement
+let audioUpdateInterval = null;
 
 // Teleprompter state
 let tpRunning = false;
@@ -870,11 +878,41 @@ function startRecording() {
   elapsedSeconds = 0;
   pauseCount = 0;
   lastWordTime = Date.now();
+  audioChunks = [];
+  currentAudioBlob = null;
+  currentAudioUrl = null;
+
   setRecordUI('recording');
   document.getElementById('resultCard').classList.remove('visible');
   document.getElementById('saveBtn').style.display = 'none';
   document.getElementById('liveSection').style.display = 'block';
   document.getElementById('aiFeedbackBox').style.display = 'none';
+  document.getElementById('playbackPanel').style.display = 'none';
+
+  // ── Start MediaRecorder for audio capture ──
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(stream => {
+      // Pick best supported format
+      const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg','audio/mp4']
+        .find(m => MediaRecorder.isTypeSupported(m)) || '';
+      mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        // Release mic tracks
+        stream.getTracks().forEach(t => t.stop());
+        if (audioChunks.length > 0) {
+          currentAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          currentAudioUrl = URL.createObjectURL(currentAudioBlob);
+        }
+      };
+      mediaRecorder.start(500); // collect in 500ms chunks
+    })
+    .catch(() => {
+      // getUserMedia failed — continue with transcript only, no playback
+      mediaRecorder = null;
+    });
+
+  // ── Start Speech Recognition ──
   timerInterval = setInterval(() => {
     elapsedSeconds++;
     document.getElementById('timerDisplay').textContent = formatTime(elapsedSeconds);
@@ -888,13 +926,117 @@ function stopRecording() {
   clearInterval(timerInterval);
   try { recognition.stop(); } catch (_) {}
   setRecordUI('idle');
+
+  // Stop MediaRecorder — onstop fires async then showResult
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = () => {
+      mediaRecorder.stream?.getTracks().forEach(t => t.stop());
+      if (audioChunks.length > 0) {
+        currentAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        currentAudioUrl = URL.createObjectURL(currentAudioBlob);
+      }
+      _finishRecording();
+    };
+    mediaRecorder.stop();
+  } else {
+    _finishRecording();
+  }
+}
+
+function _finishRecording() {
   if (currentTranscript.trim().length > 0) {
     currentAnalysis = analyzeTranscript(currentTranscript, elapsedSeconds);
     showResult(currentAnalysis);
     getAIFeedback(currentTranscript, currentAnalysis);
+    // Show playback panel if audio was captured
+    if (currentAudioUrl) setupPlaybackPanel(currentAudioUrl);
   } else {
     showToast('Không nhận được giọng nói. Thử lại!');
   }
+}
+
+// ── AUDIO PLAYBACK PANEL ──────────────────────
+function setupPlaybackPanel(audioUrl) {
+  const panel = document.getElementById('playbackPanel');
+  if (!panel) return;
+
+  // Destroy previous player
+  if (audioPlayer) {
+    audioPlayer.pause();
+    audioPlayer.src = '';
+  }
+  clearInterval(audioUpdateInterval);
+
+  audioPlayer = new Audio(audioUrl);
+  audioPlayer.preload = 'metadata';
+
+  const playBtn     = document.getElementById('playbackPlayBtn');
+  const filled      = document.getElementById('playbackFilled');
+  const thumb       = document.getElementById('playbackThumb');
+  const timeEl      = document.getElementById('playbackTime');
+  const progressWrap= document.getElementById('playbackProgressWrap');
+
+  // Reset UI
+  playBtn.textContent = '▶';
+  playBtn.classList.remove('playing');
+  if (filled) filled.style.width = '0%';
+  if (thumb)  thumb.style.left   = '0%';
+  if (timeEl) timeEl.textContent = '0:00';
+
+  // Play / Pause
+  playBtn.onclick = () => {
+    if (audioPlayer.paused) {
+      audioPlayer.play();
+      playBtn.textContent = '⏸';
+      playBtn.classList.add('playing');
+      // Update progress every 100ms
+      audioUpdateInterval = setInterval(updatePlaybackProgress, 100);
+    } else {
+      audioPlayer.pause();
+      playBtn.textContent = '▶';
+      playBtn.classList.remove('playing');
+      clearInterval(audioUpdateInterval);
+    }
+  };
+
+  // Ended
+  audioPlayer.onended = () => {
+    playBtn.textContent = '▶';
+    playBtn.classList.remove('playing');
+    clearInterval(audioUpdateInterval);
+    if (filled) filled.style.width = '100%';
+    if (thumb)  thumb.style.left   = '100%';
+  };
+
+  // Seek by tapping progress bar
+  if (progressWrap) {
+    progressWrap.addEventListener('click', (e) => {
+      const rect = progressWrap.getBoundingClientRect();
+      const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      if (audioPlayer.duration) {
+        audioPlayer.currentTime = pct * audioPlayer.duration;
+        updatePlaybackProgress();
+      }
+    });
+  }
+
+  function updatePlaybackProgress() {
+    if (!audioPlayer.duration) return;
+    const pct = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+    if (filled) filled.style.width = pct + '%';
+    if (thumb)  thumb.style.left   = pct + '%';
+    if (timeEl) {
+      const remaining = audioPlayer.duration - audioPlayer.currentTime;
+      timeEl.textContent = '-' + fmtAudioTime(remaining);
+    }
+  }
+
+  panel.style.display = 'block';
+}
+
+function fmtAudioTime(s) {
+  s = Math.max(0, Math.round(s));
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 }
 
 function setRecordUI(state) {
