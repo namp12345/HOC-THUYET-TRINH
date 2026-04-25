@@ -470,3 +470,39 @@ mark.filler-mark { background: #FFE0B2; color: #E65100; border-radius: 3px; padd
   min-width: 36px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums;
 }
 .playback-hint { font-size: .72rem; color: rgba(255,255,255,.4); margin-top: 10px; line-height: 1.5; }
+
+/* ═══════════════════════════════════════════
+   HISTORY — Audio Playback Player
+   ═══════════════════════════════════════════ */
+.hist-audio-wrap {
+  background: linear-gradient(135deg, #1A1A2E, #16213E);
+  border-radius: 12px; padding: 12px 14px; margin: 10px 0;
+}
+.hist-audio-bar { display: flex; align-items: center; gap: 10px; }
+.hist-audio-btn {
+  width: 38px; height: 38px; border-radius: 50%; border: none;
+  background: var(--orange); color: #fff; font-size: 1rem;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all .15s;
+  box-shadow: 0 3px 10px rgba(232,96,44,.4);
+}
+.hist-audio-btn:active { transform: scale(.9); }
+.hist-audio-btn.playing { background: #E53935; box-shadow: 0 3px 10px rgba(229,57,53,.4); }
+.hist-audio-progress {
+  flex: 1; height: 6px; background: rgba(255,255,255,.15);
+  border-radius: 3px; cursor: pointer; position: relative;
+}
+.hist-audio-filled {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: var(--orange); border-radius: 3px;
+  pointer-events: none; transition: width .2s linear;
+}
+.hist-audio-time {
+  font-size: .72rem; font-weight: 800; color: rgba(255,255,255,.55);
+  min-width: 32px; text-align: right; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.hist-audio-hint {
+  font-size: .68rem; color: rgba(255,255,255,.35);
+  margin-top: 7px; font-style: italic;
+}

@@ -881,6 +881,7 @@ function startRecording() {
   audioChunks = [];
   currentAudioBlob = null;
   currentAudioUrl = null;
+  mediaRecorder = null;
 
   setRecordUI('recording');
   document.getElementById('resultCard').classList.remove('visible');
@@ -889,30 +890,22 @@ function startRecording() {
   document.getElementById('aiFeedbackBox').style.display = 'none';
   document.getElementById('playbackPanel').style.display = 'none';
 
-  // ── Start MediaRecorder for audio capture ──
+  // ── Khởi động MediaRecorder để ghi âm thật ──
   navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     .then(stream => {
-      // Pick best supported format
       const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg','audio/mp4']
         .find(m => MediaRecorder.isTypeSupported(m)) || '';
       mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-      mediaRecorder.onstop = () => {
-        // Release mic tracks
-        stream.getTracks().forEach(t => t.stop());
-        if (audioChunks.length > 0) {
-          currentAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-          currentAudioUrl = URL.createObjectURL(currentAudioBlob);
-        }
+      // Lưu stream vào mediaRecorder để release sau
+      mediaRecorder._stream = stream;
+      mediaRecorder.ondataavailable = e => {
+        if (e.data && e.data.size > 0) audioChunks.push(e.data);
       };
-      mediaRecorder.start(500); // collect in 500ms chunks
+      mediaRecorder.start(300);
     })
-    .catch(() => {
-      // getUserMedia failed — continue with transcript only, no playback
-      mediaRecorder = null;
-    });
+    .catch(() => { mediaRecorder = null; });
 
-  // ── Start Speech Recognition ──
+  // ── Khởi động Speech Recognition ──
   timerInterval = setInterval(() => {
     elapsedSeconds++;
     document.getElementById('timerDisplay').textContent = formatTime(elapsedSeconds);
@@ -927,12 +920,17 @@ function stopRecording() {
   try { recognition.stop(); } catch (_) {}
   setRecordUI('idle');
 
-  // Stop MediaRecorder — onstop fires async then showResult
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    // Gán onstop MỘT LẦN duy nhất ở đây
     mediaRecorder.onstop = () => {
-      mediaRecorder.stream?.getTracks().forEach(t => t.stop());
+      // Release mic
+      if (mediaRecorder._stream) {
+        mediaRecorder._stream.getTracks().forEach(t => t.stop());
+      }
+      // Tạo blob audio
       if (audioChunks.length > 0) {
-        currentAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        const mime = mediaRecorder.mimeType || 'audio/webm';
+        currentAudioBlob = new Blob(audioChunks, { type: mime });
         currentAudioUrl = URL.createObjectURL(currentAudioBlob);
       }
       _finishRecording();
@@ -944,14 +942,23 @@ function stopRecording() {
 }
 
 function _finishRecording() {
-  if (currentTranscript.trim().length > 0) {
-    currentAnalysis = analyzeTranscript(currentTranscript, elapsedSeconds);
-    showResult(currentAnalysis);
-    getAIFeedback(currentTranscript, currentAnalysis);
-    // Show playback panel if audio was captured
-    if (currentAudioUrl) setupPlaybackPanel(currentAudioUrl);
-  } else {
+  if (currentTranscript.trim().length === 0) {
     showToast('Không nhận được giọng nói. Thử lại!');
+    return;
+  }
+  currentAnalysis = analyzeTranscript(currentTranscript, elapsedSeconds);
+  showResult(currentAnalysis);
+  getAIFeedback(currentTranscript, currentAnalysis);
+
+  // Nếu có audio → setup player ngay + chuyển blob→base64 để lưu
+  if (currentAudioUrl) {
+    setupPlaybackPanel(currentAudioUrl);
+  }
+  if (currentAudioBlob) {
+    blobToBase64(currentAudioBlob).then(b64 => {
+      currentAnalysis._audioBase64 = b64;
+      currentAnalysis._audioMime   = currentAudioBlob.type || 'audio/webm';
+    });
   }
 }
 
@@ -1037,6 +1044,15 @@ function setupPlaybackPanel(audioUrl) {
 function fmtAudioTime(s) {
   s = Math.max(0, Math.round(s));
   return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result); // "data:audio/webm;base64,..."
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 function setRecordUI(state) {
@@ -1194,13 +1210,39 @@ Viết thành đoạn văn tự nhiên, khích lệ, không dùng bullet points.
 function bindSaveBtn() {
   document.getElementById('saveBtn').addEventListener('click', () => {
     if (!currentAnalysis) return;
-    const history = getHistory();
-    history.unshift({
-      id: Date.now(), topicId: selectedTopic.id, topicName: selectedTopic.name,
-      topicEmoji: selectedTopic.emoji, ...currentAnalysis,
+    const entry = {
+      id: Date.now(),
+      topicId: selectedTopic.id, topicName: selectedTopic.name, topicEmoji: selectedTopic.emoji,
+      ...currentAnalysis,
       date: new Date().toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    };
+    // Lưu audio nếu đã chuyển xong base64
+    if (currentAnalysis._audioBase64) {
+      entry.audioBase64 = currentAnalysis._audioBase64;
+      entry.audioMime   = currentAnalysis._audioMime || 'audio/webm';
+    }
+    const history = getHistory();
+    history.unshift(entry);
+
+    // Giới hạn dung lượng: tối đa 20 bài có audio, xóa audio của bài cũ hơn
+    let audioCount = 0;
+    history.forEach(e => {
+      if (e.audioBase64) {
+        audioCount++;
+        if (audioCount > 20) { delete e.audioBase64; delete e.audioMime; }
+      }
     });
-    localStorage.setItem('speakingHistory', JSON.stringify(history));
+
+    try {
+      localStorage.setItem('speakingHistory', JSON.stringify(history));
+    } catch (storageErr) {
+      // Nếu vượt dung lượng → lưu không có audio
+      delete entry.audioBase64; delete entry.audioMime;
+      history[0] = entry;
+      localStorage.setItem('speakingHistory', JSON.stringify(history));
+      showToast('⚠️ Lưu không có audio (bộ nhớ đầy)');
+    }
+
     updateStreakOnSave();
     showToast('✅ Đã lưu bài luyện!');
     document.getElementById('saveBtn').style.display = 'none';
@@ -1215,15 +1257,37 @@ function renderHistory() {
   const container = document.getElementById('historyList');
   if (!container) return;
   container.innerHTML = '';
-  if (!history.length) { container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Chưa có bài luyện nào.<br>Hãy ghi âm và lưu bài đầu tiên!</p></div>`; return; }
+  if (!history.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Chưa có bài luyện nào.<br>Hãy ghi âm và lưu bài đầu tiên!</p></div>`;
+    return;
+  }
   history.forEach(entry => {
-    const sc = entry.score || 0;
+    const sc  = entry.score || 0;
     const col = sc >= 75 ? '#1A7F7A' : sc >= 50 ? '#D4A017' : '#E53935';
+    const hasAudio = !!entry.audioBase64;
+
     const div = document.createElement('div');
     div.className = 'history-item';
+
+    // Audio player HTML (chỉ khi có audio)
+    const audioHtml = hasAudio ? `
+      <div class="hist-audio-wrap" id="haWrap_${entry.id}">
+        <div class="hist-audio-bar">
+          <button class="hist-audio-btn" id="haBtn_${entry.id}" title="Nghe lại">▶</button>
+          <div class="hist-audio-progress" id="haProg_${entry.id}">
+            <div class="hist-audio-filled" id="haFill_${entry.id}" style="width:0%"></div>
+          </div>
+          <span class="hist-audio-time" id="haTime_${entry.id}">0:00</span>
+        </div>
+        <div class="hist-audio-hint">🎧 Nhấn ▶ để nghe lại giọng nói của bạn</div>
+      </div>` : '';
+
     div.innerHTML = `
       <div class="history-header">
-        <div><div class="history-topic">${entry.topicEmoji} ${entry.topicName}</div><div class="history-date">${entry.date}</div></div>
+        <div>
+          <div class="history-topic">${entry.topicEmoji} ${entry.topicName}</div>
+          <div class="history-date">${entry.date}${hasAudio ? ' · 🎧' : ''}</div>
+        </div>
         <div class="history-score" style="color:${col}">${sc}<small>/100</small></div>
       </div>
       <div class="history-stats">
@@ -1233,13 +1297,82 @@ function renderHistory() {
         <div class="h-stat">🚫 ${entry.fillerCount||0} đệm</div>
       </div>
       <div class="history-transcript">${entry.transcript ? entry.transcript.substring(0,100) + '...' : ''}</div>
+      ${audioHtml}
       <button class="btn-delete" data-id="${entry.id}">🗑️ Xóa</button>`;
+
+    // Bind audio player nếu có
+    if (hasAudio) {
+      bindHistoryAudioPlayer(div, entry);
+    }
+
     div.querySelector('.btn-delete').addEventListener('click', () => {
       localStorage.setItem('speakingHistory', JSON.stringify(getHistory().filter(e => e.id !== entry.id)));
-      renderHistory(); showToast('🗑️ Đã xóa.');
+      renderHistory();
+      showToast('🗑️ Đã xóa.');
     });
+
     container.appendChild(div);
   });
+}
+
+function bindHistoryAudioPlayer(div, entry) {
+  let histPlayer = null;
+  let histInterval = null;
+  let isPlaying = false;
+
+  const btn  = div.querySelector(`#haBtn_${entry.id}`);
+  const fill = div.querySelector(`#haFill_${entry.id}`);
+  const prog = div.querySelector(`#haProg_${entry.id}`);
+  const time = div.querySelector(`#haTime_${entry.id}`);
+
+  function initPlayer() {
+    if (histPlayer) return; // đã khởi tạo
+    histPlayer = new Audio(entry.audioBase64);
+    histPlayer.preload = 'metadata';
+    histPlayer.onended = () => {
+      isPlaying = false;
+      btn.textContent = '▶';
+      btn.classList.remove('playing');
+      clearInterval(histInterval);
+      if (fill) fill.style.width = '100%';
+    };
+  }
+
+  function updateProgress() {
+    if (!histPlayer || !histPlayer.duration) return;
+    const pct = (histPlayer.currentTime / histPlayer.duration) * 100;
+    if (fill) fill.style.width = pct + '%';
+    if (time) time.textContent = fmtAudioTime(histPlayer.currentTime);
+  }
+
+  btn.addEventListener('click', () => {
+    initPlayer();
+    if (isPlaying) {
+      histPlayer.pause();
+      isPlaying = false;
+      btn.textContent = '▶';
+      btn.classList.remove('playing');
+      clearInterval(histInterval);
+    } else {
+      histPlayer.play();
+      isPlaying = true;
+      btn.textContent = '⏸';
+      btn.classList.add('playing');
+      histInterval = setInterval(updateProgress, 200);
+    }
+  });
+
+  if (prog) {
+    prog.addEventListener('click', e => {
+      initPlayer();
+      const rect = prog.getBoundingClientRect();
+      const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      if (histPlayer.duration) {
+        histPlayer.currentTime = pct * histPlayer.duration;
+        updateProgress();
+      }
+    });
+  }
 }
 
 // ── STATS ─────────────────────────────────────
