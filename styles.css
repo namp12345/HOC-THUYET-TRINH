@@ -506,3 +506,35 @@ mark.filler-mark { background: #FFE0B2; color: #E65100; border-radius: 3px; padd
   font-size: .68rem; color: rgba(255,255,255,.35);
   margin-top: 7px; font-style: italic;
 }
+
+/* ═══════════════════════════════════════════
+   v4.2 — Practice tab guide hint, result sections
+   ═══════════════════════════════════════════ */
+.tp-guide-hint {
+  background: var(--teal-lt); border-radius: var(--r-sm);
+  padding: 10px 14px; margin-top: 10px;
+  font-size: .82rem; color: var(--teal-dk); line-height: 1.55;
+}
+.result-section-card {
+  background: var(--cream); border-radius: var(--r-sm);
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.rsc-title { font-size: .82rem; font-weight: 800; color: var(--text-dark); margin-bottom: 6px; }
+.rsc-desc  { font-size: .8rem; color: var(--text-mid); line-height: 1.6; margin-top: 4px; }
+.suggestion-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: .8rem; color: var(--text-mid); line-height: 1.6;
+  padding: 4px 0; border-bottom: 1px solid var(--sand);
+}
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-dot { color: var(--orange); font-weight: 900; flex-shrink: 0; margin-top: 1px; }
+.tp-status-msg {
+  display: flex; align-items: center; gap: 10px;
+  padding: 20px; justify-content: center;
+  font-size: .88rem; font-weight: 700; color: var(--text-mid);
+}
+.tp-replay-panel {
+  background: linear-gradient(135deg,#1A1A2E,#16213E);
+  border-radius: var(--r-md); padding: 16px; margin-bottom: 14px;
+}
+/* No-speech banner hidden by default since recording is TP-only */

@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderHistory();
   renderStats();
   bindTabs();
-  bindRecordBtn();
+  // bindRecordBtn() — manual recorder removed in v4.2, ghi âm chỉ qua Teleprompter
   bindSaveBtn();
   bindTopicModal();
   bindTeleprompter();
@@ -322,23 +322,19 @@ function selectTopic(topic, card) {
   document.querySelectorAll('.topic-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
   selectedTopic = topic;
-
   document.getElementById('scriptTopicName').textContent = `${topic.emoji} ${topic.name}`;
   document.getElementById('scriptText').textContent = topic.script;
   document.getElementById('scriptSection').style.display = 'block';
   document.getElementById('resultCard').classList.remove('visible');
   document.getElementById('saveBtn').style.display = 'none';
-  document.getElementById('liveSection').style.display = 'none';
   currentTranscript = '';
-  const liveEl = document.getElementById('liveTranscript');
-  if (liveEl) liveEl.innerHTML = '';
-  document.getElementById('liveStats').innerHTML = '';
+  // Guard removed elements (liveSection removed in v4.2)
+  const _ls = document.getElementById('liveSection');   if (_ls) _ls.style.display = 'none';
+  const _lt = document.getElementById('liveTranscript'); if (_lt) _lt.innerHTML = '';
+  const _lstat = document.getElementById('liveStats');   if (_lstat) _lstat.innerHTML = '';
 
-  // Quick teleprompter button
   const quickBtn = document.getElementById('quickTeleBtn');
-  if (quickBtn) {
-    quickBtn.onclick = () => openTeleprompter(topic);
-  }
+  if (quickBtn) quickBtn.onclick = () => openTeleprompter(topic);
 }
 
 // ── TOPIC MODAL ───────────────────────────────
@@ -592,18 +588,37 @@ function bindTeleprompter() {
   // ── Result modal buttons ──
   document.getElementById('tpResultClose').addEventListener('click', () => {
     document.getElementById('tpResultModal').classList.remove('open');
+    if (tpReplayAudio) { tpReplayAudio.pause(); }
+  });
+
+  // Retake: close modal and re-open same topic in teleprompter
+  document.getElementById('tpRetakeBtn').addEventListener('click', () => {
+    document.getElementById('tpResultModal').classList.remove('open');
+    if (tpReplayAudio) { tpReplayAudio.pause(); }
+    if (tpCurrentTopic) {
+      // Reset and reopen
+      setTimeout(() => openTeleprompter(tpCurrentTopic), 200);
+    }
   });
 
   document.getElementById('tpResultSave').addEventListener('click', () => {
     if (!tpCurrentAnalysis || !tpCurrentTopic) return;
-    const history = getHistory();
-    history.unshift({
+    const entry = {
       id: Date.now(),
       topicId: tpCurrentTopic.id, topicName: tpCurrentTopic.name, topicEmoji: tpCurrentTopic.emoji,
       ...tpCurrentAnalysis, mode: 'teleprompter',
       date: new Date().toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
-    });
-    localStorage.setItem('speakingHistory', JSON.stringify(history));
+    };
+    // Save audio if available
+    if (currentAudioBlob) {
+      blobToBase64(currentAudioBlob).then(b64 => {
+        entry.audioBase64 = b64;
+        entry.audioMime = currentAudioBlob.type || 'audio/webm';
+        _saveHistoryEntry(entry);
+      });
+    } else {
+      _saveHistoryEntry(entry);
+    }
     updateStreakOnSave();
     updateStreak();
     document.getElementById('tpResultSave').style.display = 'none';
@@ -611,9 +626,20 @@ function bindTeleprompter() {
   });
 }
 
+function _saveHistoryEntry(entry) {
+  const history = getHistory();
+  history.unshift(entry);
+  // Keep audio for max 20 entries
+  let ac = 0;
+  history.forEach(e => { if (e.audioBase64) { ac++; if (ac > 20) { delete e.audioBase64; delete e.audioMime; } } });
+  try { localStorage.setItem('speakingHistory', JSON.stringify(history)); } catch (_) {
+    delete history[0].audioBase64; delete history[0].audioMime;
+    localStorage.setItem('speakingHistory', JSON.stringify(history));
+  }
+}
+
 // ── TP Recording logic ────────────────────────
 function tpStartRecording() {
-  if (!speechSupported) return;
   tpIsRecording = true;
   tpTranscript = '';
   tpElapsedSeconds = 0;
@@ -621,42 +647,68 @@ function tpStartRecording() {
   tpLastWordTime = Date.now();
   tpCurrentAnalysis = null;
 
-  // Init recognition for TP (separate instance)
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  tpRecognition = new SR();
-  tpRecognition.lang = 'vi-VN';
-  tpRecognition.continuous = true;
-  tpRecognition.interimResults = true;
+  // Reset shared audio state
+  audioChunks = [];
+  currentAudioBlob = null;
+  if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null; }
 
-  tpRecognition.onresult = (e) => {
-    const now = Date.now();
-    if (now - tpLastWordTime > 2000) tpPauseCount++;
-    tpLastWordTime = now;
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) tpTranscript += t + ' ';
-      else interim = t;
-    }
-    // Update live strip
-    const liveText = document.getElementById('tpLiveText');
-    const liveWpm  = document.getElementById('tpLiveWpm');
-    if (liveText) {
-      const preview = (tpTranscript + interim).trim();
-      liveText.textContent = preview ? preview.slice(-80) : 'Đang lắng nghe…';
-    }
-    if (liveWpm && tpElapsedSeconds > 5) {
-      const w = tpTranscript.trim().split(/\s+/).filter(Boolean).length;
-      liveWpm.textContent = Math.round(w / (tpElapsedSeconds / 60)) + ' wpm';
-    }
-  };
+  // ── Start MediaRecorder for audio playback ──
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(stream => {
+      const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg','audio/mp4']
+        .find(m => MediaRecorder.isTypeSupported(m)) || '';
+      mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      mediaRecorder._stream = stream;
+      mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        if (mediaRecorder._stream) mediaRecorder._stream.getTracks().forEach(t => t.stop());
+        if (audioChunks.length > 0) {
+          currentAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          currentAudioUrl = URL.createObjectURL(currentAudioBlob);
+        }
+      };
+      mediaRecorder.start(300);
+    })
+    .catch(() => { mediaRecorder = null; });
 
-  tpRecognition.onerror = (e) => {
-    if (e.error !== 'no-speech') { tpStopRecording(true); showToast('⚠️ Lỗi mic: ' + e.error); }
-  };
-  tpRecognition.onend = () => { if (tpIsRecording) { try { tpRecognition.start(); } catch (_) {} } };
+  // ── Speech Recognition ──
+  if (speechSupported) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    tpRecognition = new SR();
+    // Use language based on topic if available
+    const lang = tpCurrentTopic?.lang || 'vi-VN';
+    tpRecognition.lang = lang;
+    tpRecognition.continuous = true;
+    tpRecognition.interimResults = true;
 
-  try { tpRecognition.start(); } catch (_) {}
+    tpRecognition.onresult = (e) => {
+      const now = Date.now();
+      if (now - tpLastWordTime > 2000) tpPauseCount++;
+      tpLastWordTime = now;
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) tpTranscript += t + ' ';
+        else interim = t;
+      }
+      const liveText = document.getElementById('tpLiveText');
+      const liveWpm  = document.getElementById('tpLiveWpm');
+      if (liveText) {
+        const preview = (tpTranscript + interim).trim();
+        liveText.textContent = preview ? preview.slice(-80) : 'Đang lắng nghe…';
+      }
+      if (liveWpm && tpElapsedSeconds > 5) {
+        const w = tpTranscript.trim().split(/\s+/).filter(Boolean).length;
+        const wpmLive = Math.round(w / (tpElapsedSeconds / 60));
+        liveWpm.textContent = wpmLive + ' wpm';
+      }
+    };
+    tpRecognition.onerror = (e) => {
+      if (e.error !== 'no-speech') { tpStopRecording(true); showToast('⚠️ Lỗi mic: ' + e.error); }
+    };
+    tpRecognition.onend = () => { if (tpIsRecording) { try { tpRecognition.start(); } catch (_) {} } };
+    try { tpRecognition.start(); } catch (_) {}
+  }
 
   // Timer
   tpTimerInterval = setInterval(() => {
@@ -678,15 +730,54 @@ function tpStopRecording(showResult) {
   tpIsRecording = false;
   clearInterval(tpTimerInterval);
   try { if (tpRecognition) tpRecognition.stop(); } catch (_) {}
-
   tpResetRecUI();
 
-  if (showResult && tpTranscript.trim().length > 0) {
-    tpCurrentAnalysis = analyzeTranscript(tpTranscript, tpElapsedSeconds);
-    tpShowResult(tpCurrentAnalysis);
-    tpGetAIFeedback(tpTranscript, tpCurrentAnalysis);
-  } else if (showResult) {
-    showToast('Không nhận được giọng nói. Thử lại!');
+  if (!showResult) {
+    // Just stop MediaRecorder silently
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.onstop = () => {
+        if (mediaRecorder._stream) mediaRecorder._stream.getTracks().forEach(t => t.stop());
+      };
+      mediaRecorder.stop();
+    }
+    return;
+  }
+
+  // Show modal with "processing" status
+  const modal = document.getElementById('tpResultModal');
+  const statusEl  = document.getElementById('tpStatusMsg');
+  const contentEl = document.getElementById('tpResultContent');
+  const statusText = document.getElementById('tpStatusText');
+  if (statusEl)   statusEl.style.display = 'flex';
+  if (contentEl)  contentEl.style.display = 'none';
+  if (statusText) statusText.textContent = 'Đang xử lý bản ghi âm…';
+  modal.classList.add('open');
+
+  // Stop MediaRecorder first, then show result
+  const doShowResult = () => {
+    if (statusText) statusText.textContent = 'Đang phân tích bài nói…';
+    setTimeout(() => {
+      tpCurrentAnalysis = analyzeTranscript(tpTranscript, tpElapsedSeconds);
+      tpShowResult(tpCurrentAnalysis);
+      if (tpTranscript.trim().length >= 10) {
+        tpGetAIFeedback(tpTranscript, tpCurrentAnalysis);
+      }
+    }, 300);
+  };
+
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = () => {
+      if (mediaRecorder._stream) mediaRecorder._stream.getTracks().forEach(t => t.stop());
+      if (audioChunks.length > 0) {
+        currentAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = URL.createObjectURL(currentAudioBlob);
+      }
+      doShowResult();
+    };
+    mediaRecorder.stop();
+  } else {
+    doShowResult();
   }
 }
 
@@ -711,6 +802,12 @@ function tpResetRecUI() {
 function tpShowResult(a) {
   const modal = document.getElementById('tpResultModal');
 
+  // Hide status, show content
+  const statusEl = document.getElementById('tpStatusMsg');
+  const contentEl = document.getElementById('tpResultContent');
+  if (statusEl) statusEl.style.display = 'none';
+  if (contentEl) contentEl.style.display = 'block';
+
   // Score ring
   const ring = document.getElementById('tpScoreRing');
   if (ring) {
@@ -723,35 +820,174 @@ function tpShowResult(a) {
   setEl('tpScoreNumber', a.score);
   setEl('tpScoreLabel', a.score >= 80 ? '🌟 Xuất sắc!' : a.score >= 65 ? '👍 Khá tốt' : a.score >= 50 ? '📈 Trung bình' : '💪 Cần luyện');
 
-  setEl('tpResWords',   a.wordCount);
-  setEl('tpResWpm',     a.wpm);
+  // Stats — show recognized words & real WPM
+  setEl('tpResWords',   a.wordCount > 0 ? a.wordCount : '—');
+  setEl('tpResWpm',     a.wordCount >= 10 ? a.wpm : '—');
   setEl('tpResTime',    formatTime(a.seconds));
   setEl('tpResFillers', a.fillerCount);
   setEl('tpResPauses',  a.pauseCount);
 
-  // Sync score: how much of the script the user covered
+  // Content match %
   const scriptWords = tpCurrentTopic ? tokenize(tpCurrentTopic.script || '').length : 0;
-  const syncPct = scriptWords > 0 ? Math.min(100, Math.round((a.wordCount / scriptWords) * 100)) : '—';
-  setEl('tpResSync', syncPct + (syncPct !== '—' ? '%' : ''));
+  let syncPct = '—';
+  if (scriptWords > 0 && a.wordCount > 0) {
+    syncPct = Math.min(100, Math.round((a.wordCount / scriptWords) * 100)) + '%';
+  }
+  setEl('tpResSync', syncPct);
 
-  // Badges
-  const badgeRow = document.getElementById('tpBadgeRow');
-  if (badgeRow) {
-    const badges = [
-      a.wpm < 90 ? ['🐢 Hơi chậm','warn'] : a.wpm <= 130 ? ['✅ Tốc độ tốt','good'] : ['⚡ Hơi nhanh','warn'],
-      parseFloat(a.fillerRate) === 0 ? ['🎯 Không từ đệm!','good'] : [`🚫 ${a.fillerCount} từ đệm`,'warn'],
-      a.hasOpening ? ['✅ Có lời chào','good'] : ['❌ Thiếu lời chào','error'],
-      a.hasClosing  ? ['✅ Có kết bài','good']  : ['❌ Thiếu kết bài','error'],
-    ];
-    badgeRow.innerHTML = badges.map(([t,c]) => `<span class="badge ${c}">${t}</span>`).join('');
+  // Content match bar
+  const kwBar = document.getElementById('tpKwBar');
+  const kwText = document.getElementById('tpKwText');
+  if (kwBar) {
+    const pct = scriptWords > 0 && a.wordCount > 0
+      ? Math.min(100, Math.round((a.wordCount / scriptWords) * 100)) : 0;
+    setTimeout(() => { kwBar.style.width = pct + '%'; }, 200);
+  }
+  if (kwText) {
+    if (a.topicKeywords && a.topicKeywords.length > 0) {
+      kwText.textContent = `${a.keywordsHit?.length || 0}/${a.topicKeywords.length} từ khóa đã đề cập (${a.keywordScore || 0}%)`;
+    } else {
+      kwText.textContent = scriptWords > 0
+        ? `Bạn đã nói được khoảng ${Math.min(100, Math.round((a.wordCount/scriptWords)*100))}% nội dung bài.`
+        : 'Chủ đề tuỳ chỉnh.';
+    }
   }
 
+  // Speed section — use correct WPM from recognized words only
+  const speedDesc = document.getElementById('tpSpeedDesc');
+  const badgeRow  = document.getElementById('tpBadgeRow');
+  if (a.wordCount < 10) {
+    if (badgeRow) badgeRow.innerHTML = '<span class="badge warn">⚠️ Chưa đủ dữ liệu</span>';
+    if (speedDesc) speedDesc.textContent = 'Chưa đủ dữ liệu nhận dạng để chấm tốc độ chính xác. Hãy thử nói rõ hơn hoặc ghi âm lâu hơn.';
+  } else {
+    const wpm = a.wpm;
+    let speedBadge, speedClass, speedText;
+    if (wpm < 90) {
+      speedBadge = '🐢 Quá chậm'; speedClass = 'error';
+      speedText = `Tốc độ ${wpm} WPM — quá chậm. Hãy tự tin hơn, nói liên tục và tự nhiên hơn.`;
+    } else if (wpm <= 120) {
+      speedBadge = '🔵 Hơi chậm nhưng rõ'; speedClass = 'warn';
+      speedText = `Tốc độ ${wpm} WPM — hơi chậm nhưng rõ ràng. Rất phù hợp cho phần giới thiệu lịch sử.`;
+    } else if (wpm <= 155) {
+      speedBadge = '✅ Tốt, dễ nghe'; speedClass = 'good';
+      speedText = `Tốc độ ${wpm} WPM — rất lý tưởng cho hướng dẫn viên. Khách hàng dễ tiếp thu.`;
+    } else if (wpm <= 180) {
+      speedBadge = '⚡ Hơi nhanh'; speedClass = 'warn';
+      speedText = `Tốc độ ${wpm} WPM — hơi nhanh. Nên giảm khoảng 10–15% để khách dễ nghe hơn.`;
+    } else {
+      speedBadge = '🔥 Quá nhanh'; speedClass = 'error';
+      speedText = `Tốc độ ${wpm} WPM — quá nhanh. Hãy ngắt nghỉ rõ hơn sau mỗi ý chính.`;
+    }
+    if (badgeRow) badgeRow.innerHTML = `<span class="badge ${speedClass}">${speedBadge}</span>
+      ${parseFloat(a.fillerRate) === 0 ? '<span class="badge good">🎯 Không từ đệm!</span>' : `<span class="badge warn">🚫 ${a.fillerCount} từ đệm</span>`}
+      ${a.hasOpening ? '<span class="badge good">✅ Có lời chào</span>' : '<span class="badge error">❌ Thiếu lời chào</span>'}
+      ${a.hasClosing  ? '<span class="badge good">✅ Có kết bài</span>'  : '<span class="badge error">❌ Thiếu kết bài</span>'}`;
+    if (speedDesc) speedDesc.textContent = speedText;
+  }
+
+  // Suggestions
+  const suggestEl = document.getElementById('tpSuggestions');
+  if (suggestEl) {
+    const tips = buildSuggestions(a, tpCurrentTopic);
+    suggestEl.innerHTML = tips.map(t =>
+      `<div class="suggestion-item"><span class="suggestion-dot">→</span><span>${t}</span></div>`
+    ).join('');
+  }
+
+  // Main feedback
   setEl('tpResFeedback', generateFeedback(a));
 
-  // Show/hide save button
-  document.getElementById('tpResultSave').style.display = 'flex';
+  // Replay panel — setup if audio available
+  if (currentAudioUrl) {
+    setupTpReplayPanel(currentAudioUrl);
+  }
 
+  document.getElementById('tpResultSave').style.display = 'flex';
   modal.classList.add('open');
+}
+
+function buildSuggestions(a, topic) {
+  const tips = [];
+  if (a.wordCount < 10) {
+    tips.push('Hãy nói to và rõ hơn để hệ thống nhận dạng giọng nói hiệu quả.');
+    tips.push('Đảm bảo microphone hoạt động và không có tiếng ồn xung quanh.');
+    tips.push('Thử đọc từng câu một trong bài mẫu, không cần đọc quá nhanh.');
+    return tips;
+  }
+  if (a.wpm > 155) tips.push('Ngắt câu sau mỗi ý chính — dừng 1-2 giây để khách kịp tiếp thu.');
+  if (a.wpm < 90 && a.wordCount >= 10) tips.push('Tự tin hơn khi nói — tránh dừng quá lâu giữa các từ.');
+  if (a.fillerCount > 2) tips.push(`Thay "${FILLER_WORDS.slice(0,3).join('", "')}"… bằng khoảng dừng im lặng ngắn.`);
+  if (!a.hasOpening) tips.push('Mở đầu bằng lời chào rõ ràng: "Xin chào quý khách…"');
+  if (!a.hasClosing)  tips.push('Kết bài bằng lời cảm ơn hoặc lời chúc: "Chúc quý khách…"');
+  if (topic && topic.keywords && a.keywordScore < 60) {
+    const missing = topic.keywords.filter(k => !a.keywordsHit?.includes(k)).slice(0, 2);
+    if (missing.length) tips.push(`Nhấn mạnh các từ khóa quan trọng: "${missing.join('", "')}".`);
+  }
+  if (a.pauseCount < 2 && a.wordCount > 40) tips.push('Tạo thêm khoảng ngắt nghỉ sau mỗi điểm tham quan để tạo điểm nhấn.');
+  if (tips.length === 0) tips.push('Tiếp tục luyện tập để bài nói ngày càng tự nhiên và cuốn hút hơn!');
+  return tips.slice(0, 3);
+}
+
+// ── TP Replay Panel inside result modal ──────
+let tpReplayAudio = null;
+let tpReplayInterval = null;
+
+function setupTpReplayPanel(audioUrl) {
+  const panel = document.getElementById('tpReplayPanel');
+  if (!panel) return;
+
+  if (tpReplayAudio) { tpReplayAudio.pause(); tpReplayAudio.src = ''; }
+  clearInterval(tpReplayInterval);
+  tpReplayAudio = new Audio(audioUrl);
+
+  const btn    = document.getElementById('tpReplayBtn');
+  const filled = document.getElementById('tpReplayFilled');
+  const thumb  = document.getElementById('tpReplayThumb');
+  const timeEl = document.getElementById('tpReplayTime');
+  const prog   = document.getElementById('tpReplayProgress');
+
+  if (btn) { btn.textContent = '▶'; btn.classList.remove('playing'); }
+  if (filled) filled.style.width = '0%';
+  if (thumb)  thumb.style.left  = '0%';
+  if (timeEl) timeEl.textContent = '0:00';
+
+  tpReplayAudio.onended = () => {
+    if (btn) { btn.textContent = '▶'; btn.classList.remove('playing'); }
+    clearInterval(tpReplayInterval);
+    if (filled) filled.style.width = '100%';
+  };
+
+  if (btn) {
+    btn.onclick = () => {
+      if (tpReplayAudio.paused) {
+        tpReplayAudio.play();
+        btn.textContent = '⏸'; btn.classList.add('playing');
+        tpReplayInterval = setInterval(() => {
+          if (!tpReplayAudio.duration) return;
+          const pct = (tpReplayAudio.currentTime / tpReplayAudio.duration) * 100;
+          if (filled) filled.style.width = pct + '%';
+          if (thumb)  thumb.style.left  = pct + '%';
+          if (timeEl) timeEl.textContent = fmtAudioTime(tpReplayAudio.currentTime);
+        }, 150);
+      } else {
+        tpReplayAudio.pause();
+        btn.textContent = '▶'; btn.classList.remove('playing');
+        clearInterval(tpReplayInterval);
+      }
+    };
+  }
+
+  if (prog) {
+    prog.addEventListener('click', e => {
+      const rect = prog.getBoundingClientRect();
+      const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      if (tpReplayAudio.duration) {
+        tpReplayAudio.currentTime = pct * tpReplayAudio.duration;
+      }
+    });
+  }
+
+  panel.style.display = 'block';
 }
 
 async function tpGetAIFeedback(transcript, analysis) {
@@ -865,7 +1101,9 @@ function initRecognition(SR) {
 
 // ── RECORD ────────────────────────────────────
 function bindRecordBtn() {
-  document.getElementById('recordBtn').addEventListener('click', () => {
+  const btn = document.getElementById('recordBtn');
+  if (!btn) return; // removed in v4.2
+  btn.addEventListener('click', () => {
     if (!selectedTopic) { showToast('📌 Vui lòng chọn chủ đề trước!'); return; }
     if (!speechSupported) { showToast('⚠️ Dùng Chrome trên Android!'); return; }
     isRecording ? stopRecording() : startRecording();
@@ -883,12 +1121,12 @@ function startRecording() {
   currentAudioUrl = null;
   mediaRecorder = null;
 
-  setRecordUI('recording');
-  document.getElementById('resultCard').classList.remove('visible');
-  document.getElementById('saveBtn').style.display = 'none';
-  document.getElementById('liveSection').style.display = 'block';
-  document.getElementById('aiFeedbackBox').style.display = 'none';
-  document.getElementById('playbackPanel').style.display = 'none';
+  setRecordUI('recording'); // guarded — no-op if recordBtn removed
+  const _rc = document.getElementById('resultCard');    if (_rc) _rc.classList.remove('visible');
+  const _sb = document.getElementById('saveBtn');       if (_sb) _sb.style.display = 'none';
+  const _ls = document.getElementById('liveSection');   if (_ls) _ls.style.display = 'block';
+  const _af = document.getElementById('aiFeedbackBox'); if (_af) _af.style.display = 'none';
+  const _pp = document.getElementById('playbackPanel'); if (_pp) _pp.style.display = 'none';
 
   // ── Khởi động MediaRecorder để ghi âm thật ──
   navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -896,7 +1134,6 @@ function startRecording() {
       const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg','audio/mp4']
         .find(m => MediaRecorder.isTypeSupported(m)) || '';
       mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-      // Lưu stream vào mediaRecorder để release sau
       mediaRecorder._stream = stream;
       mediaRecorder.ondataavailable = e => {
         if (e.data && e.data.size > 0) audioChunks.push(e.data);
@@ -908,10 +1145,11 @@ function startRecording() {
   // ── Khởi động Speech Recognition ──
   timerInterval = setInterval(() => {
     elapsedSeconds++;
-    document.getElementById('timerDisplay').textContent = formatTime(elapsedSeconds);
+    const _td = document.getElementById('timerDisplay');
+    if (_td) _td.textContent = formatTime(elapsedSeconds);
     updateLiveStats();
   }, 1000);
-  try { recognition.start(); } catch (_) {}
+  try { if (recognition) recognition.start(); } catch (_) {}
 }
 
 function stopRecording() {
@@ -1057,6 +1295,7 @@ function blobToBase64(blob) {
 
 function setRecordUI(state) {
   const btn = document.getElementById('recordBtn');
+  if (!btn) return; // removed in v4.2
   const statusText = document.getElementById('recStatusText');
   const dot = document.getElementById('pulseDot');
   if (state === 'recording') {
@@ -1076,8 +1315,14 @@ function setRecordUI(state) {
 function analyzeTranscript(text, seconds) {
   const words = tokenize(text);
   const wordCount = words.length;
-  const wpm = seconds > 0 ? Math.round(wordCount / (seconds / 60)) : 0;
-  const wordLower = words.map(w => w.toLowerCase().replace(/[.,!?]/g, ''));
+  // ── CRITICAL FIX: WPM = recognized words / actual recording minutes ──
+  // Never use script length. Only count what was actually spoken & recognized.
+  const minutesDuration = seconds > 0 ? seconds / 60 : 1;
+  const wpm = wordCount >= 10 && seconds >= 5
+    ? Math.round(wordCount / minutesDuration)
+    : 0; // 0 = not enough data
+
+  const wordLower = words.map(w => w.toLowerCase().replace(/[.,!?;:""'']/g, ''));
   const fillerFound = [];
   wordLower.forEach((w, i) => {
     if (FILLER_WORDS.includes(w)) fillerFound.push(w);
@@ -1085,27 +1330,43 @@ function analyzeTranscript(text, seconds) {
   });
   const fillerCount = fillerFound.length;
   const fillerRate = wordCount > 0 ? ((fillerCount / wordCount) * 100).toFixed(1) : 0;
+
   const topicKeywords = selectedTopic ? (selectedTopic.keywords || []) : [];
   const textLower = text.toLowerCase();
   const keywordsHit = topicKeywords.filter(kw => textLower.includes(kw));
-  const keywordScore = topicKeywords.length > 0 ? Math.round((keywordsHit.length / topicKeywords.length) * 100) : 50;
+  const keywordScore = topicKeywords.length > 0
+    ? Math.round((keywordsHit.length / topicKeywords.length) * 100) : 50;
+
   const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 3);
   const sentenceCount = sentences.length;
   const openingWords = ['xin chào','kính chào','chào quý','thưa quý','xin kính'];
-  const closingWords = ['cảm ơn','tạm biệt','hẹn gặp','chúc quý','xin chúc'];
+  const closingWords  = ['cảm ơn','tạm biệt','hẹn gặp','chúc quý','xin chúc'];
   const hasOpening = openingWords.some(w => textLower.substring(0, 40).includes(w));
-  const hasClosing = closingWords.some(w => textLower.slice(-80).includes(w));
-  let score = 40;
-  if (wpm >= 90 && wpm <= 130) score += 20; else if (wpm > 130 && wpm <= 150) score += 12; else if (wpm >= 70 && wpm < 90) score += 10;
-  score -= Math.min(20, fillerCount * 3);
-  if (wordCount >= 80) score += 10;
-  if (wordCount >= 150) score += 5;
-  score += Math.round(keywordScore * 0.10);
-  if (hasOpening) score += 7;
-  if (hasClosing) score += 5;
-  if (pauseCount >= 2) score += 5;
+  const hasClosing  = closingWords.some(w => textLower.slice(-80).includes(w));
+
+  // Scoring — if < 10 recognized words, cap score at 40
+  let score = wordCount < 10 ? 20 : 40;
+  if (wordCount >= 10) {
+    if (wpm >= 120 && wpm <= 155) score += 20;
+    else if (wpm >= 90 && wpm < 120) score += 14;
+    else if (wpm > 155 && wpm <= 180) score += 10;
+    else if (wpm >= 70 && wpm < 90)  score += 8;
+    score -= Math.min(20, fillerCount * 3);
+    if (wordCount >= 50)  score += 8;
+    if (wordCount >= 100) score += 5;
+    score += Math.round(keywordScore * 0.10);
+    if (hasOpening) score += 7;
+    if (hasClosing)  score += 5;
+    if (pauseCount >= 2) score += 5;
+  }
   score = Math.max(0, Math.min(100, score));
-  return { wordCount, wpm, seconds, fillerCount, fillerRate, fillerFound, keywordScore, keywordsHit, topicKeywords, sentenceCount, pauseCount, hasOpening, hasClosing, score, transcript: text.trim() };
+
+  return {
+    wordCount, wpm, seconds, fillerCount, fillerRate,
+    fillerFound, keywordScore, keywordsHit, topicKeywords,
+    sentenceCount, pauseCount, hasOpening, hasClosing, score,
+    transcript: text.trim()
+  };
 }
 
 function tokenize(text) { return text.trim().split(/\s+/).filter(w => w.length > 0); }

@@ -84,48 +84,94 @@
 
 <!-- Result modal sau khi dừng ghi âm trong Teleprompter -->
 <div class="modal-overlay" id="tpResultModal">
-  <div class="modal-sheet" style="max-height:85dvh">
+  <div class="modal-sheet" style="max-height:90dvh">
     <div class="modal-handle"></div>
-    <div class="modal-title">📊 Kết quả bài luyện</div>
 
-    <!-- Score ring mini -->
-    <div class="score-ring-wrap" style="margin-bottom:12px">
-      <svg class="score-svg" viewBox="0 0 110 110">
-        <circle class="score-bg-ring" cx="55" cy="55" r="44"/>
-        <circle class="score-ring" id="tpScoreRing" cx="55" cy="55" r="44"/>
-        <text class="score-num-text" x="55" y="60" text-anchor="middle" id="tpScoreNumber">0</text>
-        <text class="score-lbl-text" x="55" y="72" text-anchor="middle">/100</text>
-      </svg>
-      <div id="tpScoreLabel" style="font-size:.95rem;font-weight:800;color:#2C1A0E;margin-top:4px"></div>
+    <!-- Status while processing -->
+    <div id="tpStatusMsg" class="tp-status-msg" style="display:none">
+      <span class="ai-spinner"></span>
+      <span id="tpStatusText">Đang phân tích bài nói…</span>
     </div>
 
-    <!-- Quick stats -->
-    <div class="stats-grid" style="margin-bottom:14px">
-      <div class="stat-box"><div class="stat-value" id="tpResWords">—</div><div class="stat-label">Tổng từ</div></div>
-      <div class="stat-box"><div class="stat-value" id="tpResWpm">—</div><div class="stat-label">Từ/phút</div></div>
-      <div class="stat-box"><div class="stat-value" id="tpResTime">—</div><div class="stat-label">Thời gian</div></div>
-      <div class="stat-box"><div class="stat-value" id="tpResFillers" style="color:#E65100">—</div><div class="stat-label">Từ đệm</div></div>
-      <div class="stat-box"><div class="stat-value" id="tpResPauses" style="color:#1A7F7A">—</div><div class="stat-label">Ngắt nghỉ</div></div>
-      <div class="stat-box"><div class="stat-value" id="tpResSync" style="color:#D4A017">—</div><div class="stat-label">Đồng bộ %</div></div>
-    </div>
+    <div id="tpResultContent">
+      <div class="modal-title">📊 Kết quả bài nói</div>
 
-    <!-- Badges -->
-    <div class="badge-row" id="tpBadgeRow" style="margin-bottom:14px"></div>
+      <!-- Score ring -->
+      <div class="score-ring-wrap" style="margin-bottom:12px">
+        <svg class="score-svg" viewBox="0 0 110 110">
+          <circle class="score-bg-ring" cx="55" cy="55" r="44"/>
+          <circle class="score-ring" id="tpScoreRing" cx="55" cy="55" r="44"/>
+          <text class="score-num-text" x="55" y="60" text-anchor="middle" id="tpScoreNumber">0</text>
+          <text class="score-lbl-text" x="55" y="72" text-anchor="middle">/100</text>
+        </svg>
+        <div id="tpScoreLabel" style="font-size:.95rem;font-weight:800;color:#2C1A0E;margin-top:4px"></div>
+      </div>
 
-    <!-- Feedback -->
-    <div class="feedback-box" style="margin-bottom:12px">
-      <p id="tpResFeedback"></p>
-    </div>
+      <!-- Stats grid -->
+      <div class="stats-grid" style="margin-bottom:14px">
+        <div class="stat-box"><div class="stat-value" id="tpResWords">—</div><div class="stat-label">Từ nhận dạng</div></div>
+        <div class="stat-box"><div class="stat-value" id="tpResWpm">—</div><div class="stat-label">WPM thực tế</div></div>
+        <div class="stat-box"><div class="stat-value" id="tpResTime">—</div><div class="stat-label">Thời gian</div></div>
+        <div class="stat-box"><div class="stat-value" id="tpResFillers" style="color:#E65100">—</div><div class="stat-label">Từ đệm</div></div>
+        <div class="stat-box"><div class="stat-value" id="tpResPauses" style="color:#1A7F7A">—</div><div class="stat-label">Ngắt nghỉ</div></div>
+        <div class="stat-box"><div class="stat-value" id="tpResSync" style="color:#D4A017">—</div><div class="stat-label">Khớp nội dung</div></div>
+      </div>
 
-    <!-- AI feedback -->
-    <div class="ai-feedback-box" id="tpAiFeedbackBox" style="display:none;margin-bottom:14px">
-      <div class="ai-feedback-title"><span>🤖</span> Nhận xét từ AI Coach</div>
-      <div id="tpAiFeedbackContent"></div>
-    </div>
+      <!-- Speed rating section -->
+      <div class="result-section-card" id="tpSpeedSection">
+        <div class="rsc-title">⚡ Tốc độ nói</div>
+        <div class="badge-row" id="tpBadgeRow" style="margin-bottom:6px"></div>
+        <p class="rsc-desc" id="tpSpeedDesc"></p>
+      </div>
 
-    <div class="modal-btns">
-      <button class="btn btn-ghost" id="tpResultClose">Đóng</button>
-      <button class="btn btn-primary" id="tpResultSave">💾 Lưu bài luyện</button>
+      <!-- Content match section -->
+      <div class="result-section-card" id="tpContentSection">
+        <div class="rsc-title">📋 Độ khớp nội dung</div>
+        <div class="kw-bar-wrap" style="margin:6px 0 4px"><div class="kw-bar" id="tpKwBar" style="width:0%"></div></div>
+        <p class="rsc-desc" id="tpKwText"></p>
+      </div>
+
+      <!-- Suggestions -->
+      <div class="result-section-card">
+        <div class="rsc-title">💬 Gợi ý cải thiện</div>
+        <div id="tpSuggestions"></div>
+      </div>
+
+      <!-- Feedback -->
+      <div class="feedback-box" style="margin-bottom:12px">
+        <p id="tpResFeedback"></p>
+      </div>
+
+      <!-- 🎧 Nghe lại -->
+      <div class="tp-replay-panel" id="tpReplayPanel" style="display:none">
+        <div class="playback-title">🎧 Nghe lại bài nói của bạn</div>
+        <div class="playback-inner">
+          <button class="playback-btn" id="tpReplayBtn">▶</button>
+          <div class="playback-progress-wrap" id="tpReplayProgress">
+            <div class="playback-bar">
+              <div class="playback-filled" id="tpReplayFilled" style="width:0%"></div>
+              <div class="playback-thumb" id="tpReplayThumb" style="left:0%"></div>
+            </div>
+          </div>
+          <span class="playback-time" id="tpReplayTime">0:00</span>
+        </div>
+        <div class="playback-hint">💡 Lắng nghe từ đệm, tốc độ, nhịp điệu của bạn</div>
+      </div>
+
+      <!-- AI feedback -->
+      <div class="ai-feedback-box" id="tpAiFeedbackBox" style="display:none;margin-bottom:14px">
+        <div class="ai-feedback-title"><span>🤖</span> Nhận xét từ AI Coach</div>
+        <div id="tpAiFeedbackContent"></div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="modal-btns" style="flex-direction:column;gap:8px">
+        <button class="btn btn-ghost" id="tpRetakeBtn">🔄 Ghi lại bài này</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" id="tpResultClose" style="flex:1">Đóng</button>
+          <button class="btn btn-primary" id="tpResultSave" style="flex:1">💾 Lưu bài luyện</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -220,30 +266,15 @@
       <button class="btn btn-teal" id="quickTeleBtn" style="margin-top:10px">
         📺 Mở Teleprompter cho chủ đề này
       </button>
-    </div>
-
-    <!-- Recorder -->
-    <p class="section-label">🎙️ Ghi âm bài nói</p>
-    <div class="recorder-card">
-      <div class="recorder-status" id="recStatus">
-        <div class="pulse-dot" id="pulseDot"></div>
-        <span id="recStatusText">Nhấn để bắt đầu</span>
-      </div>
-      <button class="record-btn idle" id="recordBtn" aria-label="Bắt đầu ghi âm">🎤</button>
-      <p class="record-btn-label">Nhấn để ghi âm / dừng</p>
-      <div class="timer-display" id="timerDisplay">00:00</div>
-    </div>
-
-    <!-- Live transcript -->
-    <div class="live-section" id="liveSection">
-      <p class="section-label">📡 Đang nhận dạng giọng nói</p>
-      <div id="liveStats" class="live-stats"></div>
-      <div class="live-transcript-box">
-        <div id="liveTranscript"></div>
+      <!-- Hướng dẫn -->
+      <div class="tp-guide-hint">
+        💡 Nhấn <strong>Mở Teleprompter</strong> → bấm <strong>▶ Bắt đầu</strong> để chữ chạy và ghi âm tự động
       </div>
     </div>
 
-    <!-- ── RESULT CARD ── -->
+    <!-- Không còn phần ghi âm thủ công — ghi âm chạy trong Teleprompter -->
+
+    <!-- ── RESULT CARD (hiện sau khi kết thúc TP session) ── -->
     <div class="result-card" id="resultCard">
 
       <div class="score-ring-wrap">
