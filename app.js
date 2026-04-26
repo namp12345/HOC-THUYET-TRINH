@@ -757,8 +757,23 @@ function tpStopRecording(showResult) {
   const doShowResult = () => {
     if (statusText) statusText.textContent = 'Đang phân tích bài nói…';
     setTimeout(() => {
-      tpCurrentAnalysis = analyzeTranscript(tpTranscript, tpElapsedSeconds);
+      // Tính % teleprompter đã cuộn qua
+      const wrapper   = document.querySelector('.tp-text-wrapper');
+      const container = document.getElementById('tpScrollContainer');
+      let tpPct = 0;
+      if (wrapper && container && wrapper.scrollHeight > container.clientHeight) {
+        tpPct = Math.min(100, Math.round(
+          (tpScrollPos / (wrapper.scrollHeight - container.clientHeight)) * 100
+        ));
+      }
+      const extra = {
+        tpProgressPct:    tpPct,
+        audioBlobSize:    currentAudioBlob?.size || 0,
+        speechSupported:  speechSupported
+      };
+      tpCurrentAnalysis = analyzeTranscript(tpTranscript, tpElapsedSeconds, extra);
       tpShowResult(tpCurrentAnalysis);
+      // Gọi AI chỉ khi có đủ transcript
       if (tpTranscript.trim().length >= 10) {
         tpGetAIFeedback(tpTranscript, tpCurrentAnalysis);
       }
@@ -801,14 +816,14 @@ function tpResetRecUI() {
 // ── TP Result Modal ───────────────────────────
 function tpShowResult(a) {
   const modal = document.getElementById('tpResultModal');
-
-  // Hide status, show content
-  const statusEl = document.getElementById('tpStatusMsg');
+  const statusEl  = document.getElementById('tpStatusMsg');
   const contentEl = document.getElementById('tpResultContent');
-  if (statusEl) statusEl.style.display = 'none';
+  if (statusEl)  statusEl.style.display = 'none';
   if (contentEl) contentEl.style.display = 'block';
 
-  // Score ring
+  // ── Score label ───────────────────────────
+  const isEstimated = (a.dataMode === 'B');
+  const scoreTag    = isEstimated ? ' *' : '';
   const ring = document.getElementById('tpScoreRing');
   if (ring) {
     const c = 2 * Math.PI * 44;
@@ -818,74 +833,104 @@ function tpShowResult(a) {
     ring.style.stroke = a.score >= 75 ? '#1A7F7A' : a.score >= 50 ? '#D4A017' : '#E53935';
   }
   setEl('tpScoreNumber', a.score);
-  setEl('tpScoreLabel', a.score >= 80 ? '🌟 Xuất sắc!' : a.score >= 65 ? '👍 Khá tốt' : a.score >= 50 ? '📈 Trung bình' : '💪 Cần luyện');
+  const scoreText = a.score >= 80 ? '🌟 Xuất sắc!' : a.score >= 65 ? '👍 Khá tốt'
+    : a.score >= 50 ? '📈 Trung bình' : '💪 Cần luyện';
+  setEl('tpScoreLabel', scoreText + (isEstimated ? ' (ước tính)' : ''));
 
-  // Stats — show recognized words & real WPM
-  setEl('tpResWords',   a.wordCount > 0 ? a.wordCount : '—');
-  setEl('tpResWpm',     a.wordCount >= 10 ? a.wpm : '—');
+  // ── Stats boxes ───────────────────────────
+  // Từ nhận dạng
+  if (a.dataMode === 'A') {
+    setEl('tpResWords', a.wordCount);
+  } else if (a.seconds >= 60) {
+    setEl('tpResWords', 'Ít SR');
+  } else {
+    setEl('tpResWords', a.wordCount || '—');
+  }
+
+  // WPM
+  if (a.wpmLabel === 'chưa đo được' || a.wpm === 0) {
+    setEl('tpResWpm', '—');
+  } else if (a.wpmLabel === 'ước tính') {
+    setEl('tpResWpm', '~' + a.wpm);
+  } else {
+    setEl('tpResWpm', a.wpm);
+  }
+
   setEl('tpResTime',    formatTime(a.seconds));
-  setEl('tpResFillers', a.fillerCount);
-  setEl('tpResPauses',  a.pauseCount);
+  setEl('tpResFillers', a.dataMode === 'A' ? a.fillerCount : '—');
+  setEl('tpResPauses',  a.pauseCount || 0);
 
-  // Content match %
-  const scriptWords = tpCurrentTopic ? tokenize(tpCurrentTopic.script || '').length : 0;
-  let syncPct = '—';
-  if (scriptWords > 0 && a.wordCount > 0) {
-    syncPct = Math.min(100, Math.round((a.wordCount / scriptWords) * 100)) + '%';
-  }
-  setEl('tpResSync', syncPct);
-
-  // Content match bar
-  const kwBar = document.getElementById('tpKwBar');
-  const kwText = document.getElementById('tpKwText');
-  if (kwBar) {
-    const pct = scriptWords > 0 && a.wordCount > 0
-      ? Math.min(100, Math.round((a.wordCount / scriptWords) * 100)) : 0;
-    setTimeout(() => { kwBar.style.width = pct + '%'; }, 200);
-  }
-  if (kwText) {
-    if (a.topicKeywords && a.topicKeywords.length > 0) {
-      kwText.textContent = `${a.keywordsHit?.length || 0}/${a.topicKeywords.length} từ khóa đã đề cập (${a.keywordScore || 0}%)`;
-    } else {
-      kwText.textContent = scriptWords > 0
-        ? `Bạn đã nói được khoảng ${Math.min(100, Math.round((a.wordCount/scriptWords)*100))}% nội dung bài.`
-        : 'Chủ đề tuỳ chỉnh.';
-    }
+  // Khớp nội dung % (stat box)
+  if (a.contentLabel === 'chưa đo chính xác') {
+    setEl('tpResSync', '—');
+  } else {
+    setEl('tpResSync', a.contentPct + (a.contentLabel === 'ước tính' ? '%*' : '%'));
   }
 
-  // Speed section — use correct WPM from recognized words only
+  // ── Speed section ────────────────────────
   const speedDesc = document.getElementById('tpSpeedDesc');
   const badgeRow  = document.getElementById('tpBadgeRow');
-  if (a.wordCount < 10) {
-    if (badgeRow) badgeRow.innerHTML = '<span class="badge warn">⚠️ Chưa đủ dữ liệu</span>';
-    if (speedDesc) speedDesc.textContent = 'Chưa đủ dữ liệu nhận dạng để chấm tốc độ chính xác. Hãy thử nói rõ hơn hoặc ghi âm lâu hơn.';
+  let speedBadgeHtml = '';
+
+  if (a.wpmLabel === 'chưa đo được') {
+    speedBadgeHtml = '<span class="badge warn">⏱ Chưa đo được tốc độ</span>';
+    if (speedDesc) speedDesc.textContent =
+      'Chưa đo được tốc độ chính xác, nhưng bạn đã ghi âm đủ thời lượng. Hãy nghe lại bản ghi để tự kiểm tra nhịp nói.';
   } else {
     const wpm = a.wpm;
-    let speedBadge, speedClass, speedText;
+    let sb, sc, st;
+    const tag = a.wpmLabel === 'ước tính' ? ' (ước tính)' : '';
     if (wpm < 90) {
-      speedBadge = '🐢 Quá chậm'; speedClass = 'error';
-      speedText = `Tốc độ ${wpm} WPM — quá chậm. Hãy tự tin hơn, nói liên tục và tự nhiên hơn.`;
+      sb = '🐢 Quá chậm' + tag;           sc = 'error';
+      st = `Tốc độ ${wpm} WPM${tag} — quá chậm. Hãy tự tin hơn, nói liên tục và tự nhiên hơn.`;
     } else if (wpm <= 120) {
-      speedBadge = '🔵 Hơi chậm nhưng rõ'; speedClass = 'warn';
-      speedText = `Tốc độ ${wpm} WPM — hơi chậm nhưng rõ ràng. Rất phù hợp cho phần giới thiệu lịch sử.`;
+      sb = '🔵 Hơi chậm nhưng rõ' + tag;  sc = 'warn';
+      st = `Tốc độ ${wpm} WPM${tag} — hơi chậm nhưng rõ ràng. Rất phù hợp cho phần giới thiệu lịch sử.`;
     } else if (wpm <= 155) {
-      speedBadge = '✅ Tốt, dễ nghe'; speedClass = 'good';
-      speedText = `Tốc độ ${wpm} WPM — rất lý tưởng cho hướng dẫn viên. Khách hàng dễ tiếp thu.`;
+      sb = '✅ Tốt, dễ nghe' + tag;        sc = 'good';
+      st = `Tốc độ ${wpm} WPM${tag} — lý tưởng cho hướng dẫn viên. Khách hàng dễ tiếp thu.`;
     } else if (wpm <= 180) {
-      speedBadge = '⚡ Hơi nhanh'; speedClass = 'warn';
-      speedText = `Tốc độ ${wpm} WPM — hơi nhanh. Nên giảm khoảng 10–15% để khách dễ nghe hơn.`;
+      sb = '⚡ Hơi nhanh' + tag;           sc = 'warn';
+      st = `Tốc độ ${wpm} WPM${tag} — hơi nhanh. Nên giảm 10–15% để khách dễ nghe hơn.`;
     } else {
-      speedBadge = '🔥 Quá nhanh'; speedClass = 'error';
-      speedText = `Tốc độ ${wpm} WPM — quá nhanh. Hãy ngắt nghỉ rõ hơn sau mỗi ý chính.`;
+      sb = '🔥 Quá nhanh' + tag;           sc = 'error';
+      st = `Tốc độ ${wpm} WPM${tag} — quá nhanh. Hãy ngắt nghỉ rõ hơn sau mỗi ý chính.`;
     }
-    if (badgeRow) badgeRow.innerHTML = `<span class="badge ${speedClass}">${speedBadge}</span>
-      ${parseFloat(a.fillerRate) === 0 ? '<span class="badge good">🎯 Không từ đệm!</span>' : `<span class="badge warn">🚫 ${a.fillerCount} từ đệm</span>`}
-      ${a.hasOpening ? '<span class="badge good">✅ Có lời chào</span>' : '<span class="badge error">❌ Thiếu lời chào</span>'}
-      ${a.hasClosing  ? '<span class="badge good">✅ Có kết bài</span>'  : '<span class="badge error">❌ Thiếu kết bài</span>'}`;
-    if (speedDesc) speedDesc.textContent = speedText;
+    speedBadgeHtml = `<span class="badge ${sc}">${sb}</span>`;
+    if (speedDesc) speedDesc.textContent = st;
   }
 
-  // Suggestions
+  // Filler / Opening / Closing badges — chỉ khi có transcript đủ
+  if (a.dataMode === 'A') {
+    speedBadgeHtml += ` ${parseFloat(a.fillerRate) === 0
+      ? '<span class="badge good">🎯 Không từ đệm!</span>'
+      : `<span class="badge warn">🚫 ${a.fillerCount} từ đệm</span>`}
+      ${a.hasOpening ? '<span class="badge good">✅ Có lời chào</span>' : '<span class="badge error">❌ Thiếu lời chào</span>'}
+      ${a.hasClosing  ? '<span class="badge good">✅ Có kết bài</span>'  : '<span class="badge error">❌ Thiếu kết bài</span>'}`;
+  } else if (a.seconds >= 60) {
+    speedBadgeHtml += ' <span class="badge good">✅ Đã ghi âm đủ thời lượng</span>';
+  }
+  if (badgeRow) badgeRow.innerHTML = speedBadgeHtml;
+
+  // ── Nội dung khớp bar ────────────────────
+  const kwBar  = document.getElementById('tpKwBar');
+  const kwText = document.getElementById('tpKwText');
+  if (kwBar) {
+    setTimeout(() => { kwBar.style.width = a.contentPct + '%'; }, 200);
+  }
+  if (kwText) {
+    if (a.contentLabel === 'chưa đo chính xác') {
+      kwText.textContent = 'Chưa đủ transcript để đo chính xác — hãy nói gần mic hơn lần sau.';
+    } else if (a.contentLabel === 'ước tính') {
+      kwText.textContent = `Ước tính ${a.contentPct}% nội dung đã nói (dựa trên tiến độ Teleprompter).`;
+    } else if (a.topicKeywords.length > 0) {
+      kwText.textContent = `${a.keywordsHit.length}/${a.topicKeywords.length} từ khóa đã đề cập (${a.keywordScore}%).`;
+    } else {
+      kwText.textContent = `Khoảng ${a.contentPct}% nội dung bài đã được đề cập.`;
+    }
+  }
+
+  // ── Gợi ý ────────────────────────────────
   const suggestEl = document.getElementById('tpSuggestions');
   if (suggestEl) {
     const tips = buildSuggestions(a, tpCurrentTopic);
@@ -894,12 +939,23 @@ function tpShowResult(a) {
     ).join('');
   }
 
-  // Main feedback
+  // ── Feedback chính ───────────────────────
   setEl('tpResFeedback', generateFeedback(a));
 
-  // Replay panel — setup if audio available
-  if (currentAudioUrl) {
-    setupTpReplayPanel(currentAudioUrl);
+  // ── Nghe lại ─────────────────────────────
+  if (currentAudioUrl) setupTpReplayPanel(currentAudioUrl);
+
+  // ── Ghi chú ước tính ─────────────────────
+  if (isEstimated) {
+    const feedbackBox = document.getElementById('tpResFeedback')?.parentElement;
+    const noteEl = document.getElementById('tpEstimatedNote');
+    if (!noteEl && feedbackBox) {
+      const note = document.createElement('div');
+      note.id = 'tpEstimatedNote';
+      note.style.cssText = 'font-size:.72rem;color:rgba(26,127,122,.7);padding:6px 0 2px;font-style:italic;';
+      note.textContent = '* Điểm ước tính — hệ thống nhận dạng giọng nói thu được ít dữ liệu. Kết quả sẽ chính xác hơn khi nói gần micro và rõ từng câu.';
+      feedbackBox?.after(note);
+    }
   }
 
   document.getElementById('tpResultSave').style.display = 'flex';
@@ -908,23 +964,38 @@ function tpShowResult(a) {
 
 function buildSuggestions(a, topic) {
   const tips = [];
-  if (a.wordCount < 10) {
-    tips.push('Hãy nói to và rõ hơn để hệ thống nhận dạng giọng nói hiệu quả.');
-    tips.push('Đảm bảo microphone hoạt động và không có tiếng ồn xung quanh.');
-    tips.push('Thử đọc từng câu một trong bài mẫu, không cần đọc quá nhanh.');
+
+  if (a.dataMode === 'C') {
+    tips.push('Bài nói còn quá ngắn — hãy thử luyện ít nhất 1 phút để có đánh giá chính xác hơn.');
+    tips.push('Đọc toàn bộ bài mẫu từ đầu đến cuối mà không dừng lại giữa chừng.');
+    tips.push('Đảm bảo microphone đang hoạt động trước khi bắt đầu.');
     return tips;
   }
-  if (a.wpm > 155) tips.push('Ngắt câu sau mỗi ý chính — dừng 1-2 giây để khách kịp tiếp thu.');
-  if (a.wpm < 90 && a.wordCount >= 10) tips.push('Tự tin hơn khi nói — tránh dừng quá lâu giữa các từ.');
-  if (a.fillerCount > 2) tips.push(`Thay "${FILLER_WORDS.slice(0,3).join('", "')}"… bằng khoảng dừng im lặng ngắn.`);
+
+  if (a.dataMode === 'B') {
+    // Transcript yếu — ưu tiên gợi ý về mic & kỹ thuật
+    tips.push('Nói gần micro hơn (cách 15–20 cm) và tránh tiếng ồn xung quanh để nhận dạng tốt hơn.');
+    tips.push('Ngắt nhẹ sau mỗi ý chính — dừng 1–2 giây giúp khách tiếp thu và micro nhận dạng rõ hơn.');
+    if (topic?.keywords?.length) {
+      tips.push(`Nhấn mạnh các từ khóa quan trọng: "${topic.keywords.slice(0, 3).join('", "')}".`);
+    } else {
+      tips.push('Nhấn giọng vào các thông tin quan trọng của điểm tham quan.');
+    }
+    return tips;
+  }
+
+  // dataMode === 'A' — transcript đủ tốt
+  if (a.wpm > 155) tips.push('Ngắt câu sau mỗi ý chính — dừng 1–2 giây để khách kịp tiếp thu.');
+  if (a.wpm < 90 && a.wpm > 0) tips.push('Tự tin hơn khi nói — tránh dừng quá lâu giữa các từ.');
+  if (a.fillerCount > 2) tips.push(`Thay "ừm, à, thì…" bằng khoảng dừng im lặng — đó là dấu hiệu tự tin!`);
   if (!a.hasOpening) tips.push('Mở đầu bằng lời chào rõ ràng: "Xin chào quý khách…"');
   if (!a.hasClosing)  tips.push('Kết bài bằng lời cảm ơn hoặc lời chúc: "Chúc quý khách…"');
-  if (topic && topic.keywords && a.keywordScore < 60) {
+  if (topic?.keywords?.length && a.keywordScore < 60) {
     const missing = topic.keywords.filter(k => !a.keywordsHit?.includes(k)).slice(0, 2);
-    if (missing.length) tips.push(`Nhấn mạnh các từ khóa quan trọng: "${missing.join('", "')}".`);
+    if (missing.length) tips.push(`Nhấn mạnh từ khóa: "${missing.join('", "')}".`);
   }
-  if (a.pauseCount < 2 && a.wordCount > 40) tips.push('Tạo thêm khoảng ngắt nghỉ sau mỗi điểm tham quan để tạo điểm nhấn.');
-  if (tips.length === 0) tips.push('Tiếp tục luyện tập để bài nói ngày càng tự nhiên và cuốn hút hơn!');
+  if (a.pauseCount < 2 && a.wordCount > 40) tips.push('Tạo thêm ngắt nghỉ sau mỗi điểm tham quan để tạo điểm nhấn.');
+  if (tips.length === 0) tips.push('Tiếp tục luyện tập — bài nói đang rất ổn!');
   return tips.slice(0, 3);
 }
 
@@ -997,11 +1068,15 @@ async function tpGetAIFeedback(transcript, analysis) {
   box.style.display = 'block';
   content.innerHTML = '<div class="ai-loading"><span class="ai-spinner"></span> AI đang phân tích…</div>';
 
+  const modeNote = analysis.dataMode === 'B'
+    ? 'Lưu ý: transcript nhận dạng ít, kết quả dựa nhiều vào thời lượng và tiến độ.'
+    : '';
   const prompt = `Bạn là huấn luyện viên thuyết trình chuyên nghiệp cho hướng dẫn viên du lịch Việt Nam tại Đà Nẵng.
-Phân tích bài nói dưới đây (được ghi trong chế độ Teleprompter) và đưa ra nhận xét ngắn gọn bằng tiếng Việt (tối đa 100 từ): điểm mạnh, điều cần cải thiện, lời khuyên thực tế.
-Dữ liệu: Chủ đề: ${tpCurrentTopic?.name||'?'} | Từ: ${analysis.wordCount} | WPM: ${analysis.wpm} | Từ đệm: ${analysis.fillerCount} | Lời chào: ${analysis.hasOpening?'Có':'Không'} | Kết bài: ${analysis.hasClosing?'Có':'Không'} | Điểm: ${analysis.score}/100
+Phân tích bài nói và đưa ra nhận xét ngắn gọn bằng tiếng Việt (tối đa 120 từ): 1) điểm mạnh, 2) 1-2 điều cần cải thiện, 3) lời khuyên thực tế.
+Dữ liệu: Chủ đề: ${tpCurrentTopic?.name||'?'} | Thời lượng: ${formatTime(analysis.seconds)} | Từ nhận dạng: ${analysis.wordCount} | WPM: ${analysis.wpm}${analysis.wpmLabel?' ('+analysis.wpmLabel+')':''} | Từ đệm: ${analysis.fillerCount} | Điểm: ${analysis.score}/100 | Chế độ đánh giá: ${analysis.dataMode==='A'?'đầy đủ':analysis.dataMode==='B'?'ước tính':'quá ngắn'}
+${modeNote}
 Transcript: "${transcript.substring(0,350)}${transcript.length>350?'...':''}"
-Viết thành đoạn văn tự nhiên, khích lệ, không dùng bullet points.`;
+Viết thành đoạn văn tự nhiên, động viên, không dùng bullet points.`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1311,60 +1386,162 @@ function setRecordUI(state) {
   }
 }
 
-// ── ANALYSIS ENGINE ───────────────────────────
-function analyzeTranscript(text, seconds) {
-  const words = tokenize(text);
-  const wordCount = words.length;
-  // ── CRITICAL FIX: WPM = recognized words / actual recording minutes ──
-  // Never use script length. Only count what was actually spoken & recognized.
-  const minutesDuration = seconds > 0 ? seconds / 60 : 1;
-  const wpm = wordCount >= 10 && seconds >= 5
-    ? Math.round(wordCount / minutesDuration)
-    : 0; // 0 = not enough data
+// ── ANALYSIS ENGINE v4.3 ─────────────────────
+// Hỗ trợ 3 chế độ: transcript tốt / transcript yếu / không có transcript
+// Không bao giờ báo "0%" hoặc "chưa đủ dữ liệu" khi đã ghi âm >= 60s
 
+function analyzeTranscript(text, seconds, extra) {
+  // extra = { tpProgressPct, audioBlobSize, speechSupported }
+  const tpPct      = extra?.tpProgressPct   ?? 0;   // % teleprompter đã cuộn qua
+  const hasAudio   = extra?.audioBlobSize    > 0;
+  const srOk       = extra?.speechSupported  ?? speechSupported;
+
+  const words      = tokenize(text);
+  const wordCount  = words.length;
+  const mins       = Math.max(seconds, 1) / 60;
+
+  // ── Phân loại dữ liệu ─────────────────────
+  // A = transcript tốt, B = transcript yếu + ghi âm đủ, C = quá ngắn
+  let dataMode;
+  if (wordCount >= 20)           dataMode = 'A'; // transcript đủ tốt
+  else if (seconds >= 60)        dataMode = 'B'; // ghi âm đủ nhưng SR yếu
+  else                           dataMode = 'C'; // quá ngắn
+
+  // ── WPM ───────────────────────────────────
+  let wpm = 0;
+  let wpmLabel = '';   // '' | 'ước tính' | 'chưa đo được'
+  const scriptWords = tpCurrentTopic ? tokenize(tpCurrentTopic.script || '').length : 0;
+
+  if (dataMode === 'A') {
+    wpm = Math.round(wordCount / mins);
+    wpmLabel = '';
+  } else if (dataMode === 'B') {
+    if (tpPct > 5 && scriptWords > 0) {
+      // ước tính từ tiến độ teleprompter
+      const estWords = Math.round(scriptWords * tpPct / 100);
+      wpm = Math.round(estWords / mins);
+      wpmLabel = 'ước tính';
+    } else {
+      wpm = 0;
+      wpmLabel = 'chưa đo được';
+    }
+  } else {
+    wpm = 0;
+    wpmLabel = 'chưa đo được';
+  }
+
+  // ── Filler words (chỉ khi transcript đủ) ──
   const wordLower = words.map(w => w.toLowerCase().replace(/[.,!?;:""'']/g, ''));
   const fillerFound = [];
-  wordLower.forEach((w, i) => {
-    if (FILLER_WORDS.includes(w)) fillerFound.push(w);
-    if (i < wordLower.length - 1 && FILLER_WORDS.includes(w + ' ' + wordLower[i+1])) fillerFound.push(w + ' ' + wordLower[i+1]);
-  });
+  if (dataMode === 'A') {
+    wordLower.forEach((w, i) => {
+      if (FILLER_WORDS.includes(w)) fillerFound.push(w);
+      if (i < wordLower.length - 1 && FILLER_WORDS.includes(w + ' ' + wordLower[i+1]))
+        fillerFound.push(w + ' ' + wordLower[i+1]);
+    });
+  }
   const fillerCount = fillerFound.length;
-  const fillerRate = wordCount > 0 ? ((fillerCount / wordCount) * 100).toFixed(1) : 0;
+  const fillerRate  = wordCount > 0 ? ((fillerCount / wordCount) * 100).toFixed(1) : 0;
 
-  const topicKeywords = selectedTopic ? (selectedTopic.keywords || []) : [];
-  const textLower = text.toLowerCase();
-  const keywordsHit = topicKeywords.filter(kw => textLower.includes(kw));
-  const keywordScore = topicKeywords.length > 0
-    ? Math.round((keywordsHit.length / topicKeywords.length) * 100) : 50;
+  // ── Keyword matching ──────────────────────
+  const topicKeywords = tpCurrentTopic?.keywords || selectedTopic?.keywords || [];
+  const textLower     = text.toLowerCase();
+  const keywordsHit   = topicKeywords.filter(kw => textLower.includes(kw));
+  const keywordScore  = topicKeywords.length > 0
+    ? Math.round((keywordsHit.length / topicKeywords.length) * 100) : 0;
 
-  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 3);
-  const sentenceCount = sentences.length;
+  // ── Nội dung khớp % ──────────────────────
+  let contentPct = 0;       // 0–100
+  let contentLabel = '';    // '' | 'ước tính' | 'chưa đo chính xác'
+  if (dataMode === 'A') {
+    // So sánh transcript với script gốc theo token
+    if (scriptWords > 0) {
+      const coveredRatio = Math.min(1, wordCount / scriptWords);
+      const kwBonus = topicKeywords.length > 0 ? keywordScore / 100 : 0.5;
+      contentPct = Math.round(coveredRatio * 60 + kwBonus * 40);
+    } else {
+      contentPct = Math.min(100, Math.round((wordCount / 150) * 100));
+    }
+    contentLabel = '';
+  } else if (dataMode === 'B') {
+    if (tpPct > 5) {
+      contentPct  = Math.round(tpPct * 0.7); // ước tính 70% tiến độ TP
+      contentLabel = 'ước tính';
+    } else {
+      contentPct  = 0;
+      contentLabel = 'chưa đo chính xác';
+    }
+  } else {
+    contentPct  = 0;
+    contentLabel = 'chưa đo chính xác';
+  }
+
+  // ── Opening / Closing ─────────────────────
   const openingWords = ['xin chào','kính chào','chào quý','thưa quý','xin kính'];
   const closingWords  = ['cảm ơn','tạm biệt','hẹn gặp','chúc quý','xin chúc'];
   const hasOpening = openingWords.some(w => textLower.substring(0, 40).includes(w));
   const hasClosing  = closingWords.some(w => textLower.slice(-80).includes(w));
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 3);
+  const sentenceCount = sentences.length;
 
-  // Scoring — if < 10 recognized words, cap score at 40
-  let score = wordCount < 10 ? 20 : 40;
-  if (wordCount >= 10) {
-    if (wpm >= 120 && wpm <= 155) score += 20;
-    else if (wpm >= 90 && wpm < 120) score += 14;
-    else if (wpm > 155 && wpm <= 180) score += 10;
-    else if (wpm >= 70 && wpm < 90)  score += 8;
-    score -= Math.min(20, fillerCount * 3);
-    if (wordCount >= 50)  score += 8;
-    if (wordCount >= 100) score += 5;
-    score += Math.round(keywordScore * 0.10);
-    if (hasOpening) score += 7;
-    if (hasClosing)  score += 5;
-    if (pauseCount >= 2) score += 5;
+  // ── ĐIỂM TỔNG ────────────────────────────
+  let score = 0;
+  if (dataMode === 'A') {
+    // Transcript tốt — chấm đủ 4 thành phần
+    // 1. Tốc độ nói (30đ)
+    if      (wpm >= 120 && wpm <= 155) score += 30;
+    else if (wpm >= 90  && wpm < 120)  score += 22;
+    else if (wpm > 155  && wpm <= 180) score += 18;
+    else if (wpm >= 70  && wpm < 90)   score += 12;
+    else if (wpm > 0)                  score += 5;
+    // 2. Độ khớp nội dung (30đ)
+    score += Math.round(contentPct * 0.30);
+    // 3. Độ rõ ràng (20đ)
+    score += Math.max(0, 20 - fillerCount * 3);
+    // 4. Thời lượng (20đ)
+    if      (seconds >= 120) score += 20;
+    else if (seconds >= 60)  score += 15;
+    else if (seconds >= 30)  score += 8;
+    else                     score += 3;
+    // bonus
+    if (hasOpening) score += 3;
+    if (hasClosing)  score += 3;
+    if (tpPauseCount >= 2) score += 2;
+  } else if (dataMode === 'B') {
+    // Transcript yếu nhưng ghi âm đủ — chấm nhẹ tay
+    // 1. Tốc độ ước tính (25đ)
+    if (wpmLabel === 'ước tính') {
+      if      (wpm >= 120 && wpm <= 155) score += 25;
+      else if (wpm >= 90  && wpm < 120)  score += 18;
+      else if (wpm > 155  && wpm <= 180) score += 14;
+      else if (wpm > 0)                  score += 8;
+    } else {
+      score += 10; // không đo được nhưng đã ghi âm
+    }
+    // 2. Tiến độ Teleprompter (25đ)
+    score += Math.round(Math.min(tpPct, 100) * 0.25);
+    // 3. Thời lượng (30đ)
+    if      (seconds >= 180) score += 30;
+    else if (seconds >= 120) score += 25;
+    else if (seconds >= 60)  score += 18;
+    else                     score += 8;
+    // 4. Kỷ luật hoàn thành (20đ)
+    score += hasAudio ? 20 : 10;
+  } else {
+    // C: quá ngắn
+    score = Math.max(5, Math.round(seconds / 3));
   }
   score = Math.max(0, Math.min(100, score));
 
   return {
-    wordCount, wpm, seconds, fillerCount, fillerRate,
-    fillerFound, keywordScore, keywordsHit, topicKeywords,
-    sentenceCount, pauseCount, hasOpening, hasClosing, score,
+    wordCount, wpm, wpmLabel, seconds,
+    fillerCount, fillerRate, fillerFound,
+    keywordScore, keywordsHit, topicKeywords,
+    contentPct, contentLabel,
+    sentenceCount, pauseCount: tpPauseCount || 0,
+    hasOpening, hasClosing, score,
+    dataMode,   // 'A' | 'B' | 'C'
+    tpPct, hasAudio, srOk,
     transcript: text.trim()
   };
 }
@@ -1431,16 +1608,39 @@ function setBadge(id, [text, cls]) {
 }
 
 function generateFeedback(a) {
+  // dataMode B: ghi âm đủ nhưng SR yếu
+  if (a.dataMode === 'B') {
+    const durStr = formatTime(a.seconds);
+    let msg = `Bạn đã luyện tập ${durStr} — đủ thời lượng. `;
+    if (a.wpmLabel === 'ước tính' && a.wpm > 0) {
+      msg += `Tốc độ ước tính ${a.wpm} WPM`;
+      if (a.wpm >= 120 && a.wpm <= 155) msg += ', phù hợp cho hướng dẫn viên.';
+      else if (a.wpm > 155) msg += ' — hơi nhanh, hãy ngắt nghỉ rõ hơn.';
+      else msg += '.';
+      msg += ' ';
+    }
+    msg += 'Hệ thống nhận dạng được ít chữ — hãy thử nói gần micro hơn và rõ từng câu để điểm nội dung chính xác hơn lần sau.';
+    return msg;
+  }
+
+  // dataMode C: quá ngắn
+  if (a.dataMode === 'C') {
+    return `Bài nói chỉ ${formatTime(a.seconds)} — quá ngắn để đánh giá đầy đủ. Hãy thuyết trình toàn bộ bài mẫu (ít nhất 60 giây).`;
+  }
+
+  // dataMode A: transcript đủ
   const f = [];
-  if (a.wordCount < 50) f.push('Bài nói còn quá ngắn. Hãy mở rộng thêm nội dung và ví dụ cụ thể.');
-  if (a.wpm > 150) f.push('Bạn đang nói hơi nhanh. Thử hít thở sâu và ngắt nghỉ sau mỗi ý chính.');
-  if (a.wpm < 90 && a.wordCount > 30) f.push('Tốc độ hơi chậm. Hãy nói tự tin và tự nhiên hơn một chút.');
-  if (a.fillerCount > 3) f.push(`Bạn dùng ${a.fillerCount} từ đệm — hãy thay bằng khoảng dừng im lặng!`);
-  if (!a.hasOpening) f.push('Hãy bắt đầu bằng lời chào rõ ràng để tạo ấn tượng đầu tiên tốt.');
-  if (!a.hasClosing) f.push('Kết bài chưa rõ. Thêm lời cảm ơn hoặc lời chúc.');
-  if (a.topicKeywords.length > 0 && a.keywordScore < 50) f.push(`Bạn mới đề cập ${a.keywordsHit.length}/${a.topicKeywords.length} từ khóa chủ đề.`);
-  if (a.pauseCount < 2 && a.wordCount > 50) f.push('Bạn gần như không ngắt nghỉ. Hãy dừng sau mỗi ý để khách kịp tiếp thu.');
-  if (f.length === 0) return a.score >= 80 ? '🌟 Xuất sắc! Tốc độ ổn định, cấu trúc rõ ràng. Hãy tập thêm cảm xúc và nhấn giọng!' : '👍 Khá tốt! Tiếp tục luyện để bài nói ngày càng tự nhiên hơn.';
+  if (a.wpm > 155) f.push('Tốc độ hơi nhanh — ngắt nghỉ sau mỗi ý chính giúp khách dễ nghe hơn.');
+  if (a.wpm < 90 && a.wpm > 0) f.push('Tốc độ hơi chậm — hãy nói tự tin và liên tục hơn.');
+  if (a.fillerCount > 3) f.push(`${a.fillerCount} từ đệm — thay bằng khoảng dừng im lặng ngắn.`);
+  if (!a.hasOpening) f.push('Hãy mở đầu bằng lời chào rõ ràng.');
+  if (!a.hasClosing)  f.push('Kết bài chưa rõ — thêm lời cảm ơn hoặc lời chúc.');
+  if (a.topicKeywords?.length > 0 && a.keywordScore < 50)
+    f.push(`Đề cập thêm từ khóa chủ đề (${a.keywordsHit?.length || 0}/${a.topicKeywords.length}).`);
+  if (f.length === 0)
+    return a.score >= 80
+      ? '🌟 Xuất sắc! Tốc độ ổn định, cấu trúc rõ ràng. Hãy tập thêm cảm xúc và nhấn giọng vào từ khóa!'
+      : '👍 Khá tốt! Tiếp tục luyện để bài nói ngày càng tự nhiên và cuốn hút hơn.';
   return f.join(' • ');
 }
 
